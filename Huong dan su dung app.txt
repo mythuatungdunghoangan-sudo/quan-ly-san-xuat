@@ -1,37 +1,118 @@
-● File template 8KB đã tạo thành công. Giờ chạy app:
+============================================================
+  QUẢN LÝ SẢN XUẤT — Hướng dẫn sử dụng
+  Cập nhật: 28/05/2026
+============================================================
 
-● PowerShell(cd "C:\Users\mythu\OneDrive\Claude\QuanLySanXuat"; Start-Process powershell -ArgumentList "-NoExit",
-            "-Command", "cd 'C:\Users\mythu\OneDrive\Claude\QuanLySanXu…)
-  ⎿  (No output)
+Ứng dụng giúp bóc tách đơn hàng tự động từ file PDF, ảnh chụp,
+hoặc Excel của khách hàng, rồi tổng hợp vào file kế hoạch sản
+xuất Excel (5 sheet: Nhãn · Hộp · Thùng · Túi màng · Tổng hợp).
 
-● App đã khởi động. Trình duyệt sẽ tự mở tại http://localhost:8501.
 
-  ---
-  Tóm tắt những gì đã xây dựng:
+------------------------------------------------------------
+  TRUY CẬP ỨNG DỤNG
+------------------------------------------------------------
 
-  QuanLySanXuat/
-  ├── app.py                    ← Giao diện Streamlit chính
-  ├── requirements.txt
-  ├── modules/
-  │   ├── extractor.py          ← Bóc tách PDF / ảnh / Excel
-  │   ├── excel_handler.py      ← Ghi vào template
-  │   └── template_creator.py   ← Tạo file Excel mẫu
-  └── template/
-      └── ke_hoach_san_xuat.xlsx ← Template 4 sheet đã tạo sẵn
+  Qua mạng (không cần cài gì):
+  → quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app
 
-  Cách dùng:
-  1. Mở http://localhost:8501 trên trình duyệt
-  2. Nhấn "Tạo / tải template mặc định" để tải file Excel mẫu về xem cấu trúc
-  3. Upload file đơn hàng (PDF, ảnh, hoặc Excel)
-  4. App tự bóc tách, hiển thị bảng có thể chỉnh sửa trực tiếp
-  5. Chọn sheet đích (Nhãn / Hộp / Thùng / Tổng hợp)
-  6. Nhấn "Tổng hợp và tải về Excel"
+  Trên máy tính (offline):
+  → Double-click file  run.bat
 
-  Nâng cấp lên Claude AI:
-  - Vào sidebar → nhập Anthropic API key
-  - PDF scan, ảnh mờ, ảnh chụp tay sẽ được đọc chính xác hơn nhiều
-  - Không cần cài thêm gì — app tự chuyển sang dùng Claude khi có key
 
-  Để chạy lại lần sau:
-  cd "C:\Users\mythu\OneDrive\Claude\QuanLySanXuat"
-  streamlit run app.py
+------------------------------------------------------------
+  CÀI ĐẶT LẦN ĐẦU (máy mới — chỉ làm 1 lần)
+------------------------------------------------------------
+
+  Bước 1: Copy thư mục QuanLySanXuat vào máy
+           (qua USB, OneDrive, hoặc tải từ GitHub)
+
+  Bước 2: Double-click  cai_dat.bat
+           → Tự cài Python nếu chưa có (cần internet ~27MB)
+           → Tự cài toàn bộ thư viện cần thiết
+           → Chờ 2–5 phút
+
+  Bước 3: Double-click  run.bat  để mở app
+
+  Từ lần sau: chỉ cần  run.bat  là đủ.
+
+
+------------------------------------------------------------
+  CÁCH SỬ DỤNG HÀNG NGÀY
+------------------------------------------------------------
+
+  1. Mở app (run.bat hoặc link cloud)
+
+  2. Nhập Claude API Key vào sidebar (tùy chọn, nên có)
+     - Không có key: chỉ đọc được PDF có text và Excel
+     - Có key:       đọc được PDF scan, ảnh chụp tay
+     - Key dạng: sk-ant-...
+     - Mỗi lần mở app phải nhập lại (không lưu)
+
+  3. Bấm "Tạo / tải template mặc định" (lần đầu)
+     → Tải file Excel mẫu về xem cấu trúc
+
+  4. Bấm Upload → chọn file đơn hàng từ khách hàng
+     Hỗ trợ: PDF · PNG · JPG · Excel (.xlsx, .xls)
+     Có thể upload nhiều file cùng lúc (nhiều công ty)
+
+  5. Kiểm tra bảng dữ liệu — sửa trực tiếp nếu cần
+     Cột "Loại" có thể đổi: Nhãn / Hộp / Thùng / Túi màng
+
+  6. Bấm "Tổng hợp và tải về Excel"
+     → File kế hoạch sản xuất tự động phân theo sheet
+
+
+------------------------------------------------------------
+  CẬP NHẬT APP SAU KHI CHỈNH SỬA CODE
+------------------------------------------------------------
+
+  Sau khi nhờ Claude Code chỉnh sửa, nói:
+  "đẩy code lên GitHub"
+  → Claude tự chạy lệnh, cloud cập nhật sau 1–2 phút
+
+  Hoặc tự chạy trong PowerShell:
+    git add .
+    git commit -m "mô tả thay đổi"
+    git push
+
+
+------------------------------------------------------------
+  CÀI ĐẶT MÔI TRƯỜNG LẬP TRÌNH (máy mới)
+------------------------------------------------------------
+
+  Nếu muốn tiếp tục phát triển app bằng Claude Code:
+
+  1. Cài Git        → git-scm.com/download/win
+  2. Cài Python     → python.org/downloads
+                      (nhớ tick "Add Python to PATH")
+  3. Cài Node.js    → nodejs.org  (bản LTS)
+  4. Cài Claude Code → mở PowerShell, gõ:
+                       npm install -g @anthropic-ai/claude-code
+  5. Tải code về:
+     git clone https://github.com/mythuatungdunghoangan-sudo/quan-ly-san-xuat.git QuanLySanXuat
+  6. Cài thư viện:
+     pip install -r requirements.txt
+  7. Mở Claude Code:
+     cd QuanLySanXuat → gõ: claude
+     Nói: "đọc CLAUDE.md để tiếp tục"
+
+
+------------------------------------------------------------
+  THÔNG TIN KỸ THUẬT
+------------------------------------------------------------
+
+  GitHub   : github.com/mythuatungdunghoangan-sudo/quan-ly-san-xuat
+  Cloud    : quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app
+  Python   : 3.14  |  Streamlit : 1.57
+  AI Model : claude-opus-4-5 (Anthropic)
+
+  Thư mục dự án:
+  ├── app.py              ← Giao diện chính
+  ├── run.bat             ← Mở app
+  ├── cai_dat.bat         ← Cài đặt máy mới
+  ├── HUONG_DAN.md        ← Hướng dẫn đầy đủ (markdown)
+  ├── CAI_DAT_MAY_MOI.md  ← Cài đặt từ đầu (markdown)
+  ├── CLAUDE.md           ← Context cho Claude Code
+  └── modules/            ← Code xử lý dữ liệu
+
+============================================================
