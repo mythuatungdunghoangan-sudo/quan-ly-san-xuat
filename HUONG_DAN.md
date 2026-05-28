@@ -76,23 +76,26 @@ File Excel có 5 sheet: **Nhãn · Hộp · Thùng · Túi màng · Tổng hợp
 
 Khi bạn (hoặc Claude Code) chỉnh sửa code trong thư mục `QuanLySanXuat`, cần đẩy lên GitHub để cloud cập nhật.
 
-### Cách nhanh nhất — dùng Claude Code
+### Quy trình chuẩn mỗi lần cập nhật
 
-Mở Claude Code trong thư mục `QuanLySanXuat`, gõ:
+```
+Bước 1: Mở Claude Code trong thư mục QuanLySanXuat
+Bước 2: Yêu cầu chỉnh sửa như bình thường (thêm tính năng, sửa lỗi...)
+Bước 3: Nói "đẩy code lên GitHub" → Claude tự chạy lệnh git
+Bước 4: Chờ 1–2 phút → cloud tự cập nhật, không cần làm gì thêm
+```
 
-> "đẩy code lên GitHub"
+> **Lưu ý:** Chỉ cần đẩy lên GitHub — Streamlit Cloud tự động phát hiện và triển khai lại.
 
-Claude sẽ tự chạy lệnh git cho bạn.
+### Tự chạy tay (nếu không dùng Claude Code)
 
-### Tự chạy tay — mở PowerShell trong thư mục QuanLySanXuat
+Mở PowerShell trong thư mục `QuanLySanXuat`, chạy 3 lệnh:
 
 ```
 git add .
 git commit -m "mô tả thay đổi"
 git push
 ```
-
-**Sau khi push xong:** Streamlit Cloud tự động nhận code mới và khởi động lại trong ~1–2 phút. Không cần làm gì thêm.
 
 ### Kiểm tra trạng thái deploy
 
