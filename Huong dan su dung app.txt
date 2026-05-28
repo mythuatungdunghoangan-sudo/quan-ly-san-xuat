@@ -1,0 +1,37 @@
+● File template 8KB đã tạo thành công. Giờ chạy app:
+
+● PowerShell(cd "C:\Users\mythu\OneDrive\Claude\QuanLySanXuat"; Start-Process powershell -ArgumentList "-NoExit",
+            "-Command", "cd 'C:\Users\mythu\OneDrive\Claude\QuanLySanXu…)
+  ⎿  (No output)
+
+● App đã khởi động. Trình duyệt sẽ tự mở tại http://localhost:8501.
+
+  ---
+  Tóm tắt những gì đã xây dựng:
+
+  QuanLySanXuat/
+  ├── app.py                    ← Giao diện Streamlit chính
+  ├── requirements.txt
+  ├── modules/
+  │   ├── extractor.py          ← Bóc tách PDF / ảnh / Excel
+  │   ├── excel_handler.py      ← Ghi vào template
+  │   └── template_creator.py   ← Tạo file Excel mẫu
+  └── template/
+      └── ke_hoach_san_xuat.xlsx ← Template 4 sheet đã tạo sẵn
+
+  Cách dùng:
+  1. Mở http://localhost:8501 trên trình duyệt
+  2. Nhấn "Tạo / tải template mặc định" để tải file Excel mẫu về xem cấu trúc
+  3. Upload file đơn hàng (PDF, ảnh, hoặc Excel)
+  4. App tự bóc tách, hiển thị bảng có thể chỉnh sửa trực tiếp
+  5. Chọn sheet đích (Nhãn / Hộp / Thùng / Tổng hợp)
+  6. Nhấn "Tổng hợp và tải về Excel"
+
+  Nâng cấp lên Claude AI:
+  - Vào sidebar → nhập Anthropic API key
+  - PDF scan, ảnh mờ, ảnh chụp tay sẽ được đọc chính xác hơn nhiều
+  - Không cần cài thêm gì — app tự chuyển sang dùng Claude khi có key
+
+  Để chạy lại lần sau:
+  cd "C:\Users\mythu\OneDrive\Claude\QuanLySanXuat"
+  streamlit run app.py

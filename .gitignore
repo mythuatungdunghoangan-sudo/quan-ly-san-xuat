@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.claude/
+.streamlit/secrets.toml
+template/ke_hoach_san_xuat.xlsx
+Don hang/
+Bao cao hinh anh/
+*.xlsx
+*.pdf
+*.jpg
+*.png
+*.jpeg
