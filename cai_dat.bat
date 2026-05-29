@@ -22,7 +22,6 @@ for %%C in (python py python3) do (
     )
 )
 
-REM Tim trong cac duong dan pho bien (khi Python da cai nhung chua co trong PATH)
 if not defined PY (
     for %%D in (
         "%LOCALAPPDATA%\Programs\Python\Python314\python.exe"

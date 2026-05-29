@@ -8,6 +8,9 @@ echo.
 
 cd /d "%~dp0"
 
+REM ---- Khong tao __pycache__ (tranh sync OneDrive) ----
+set PYTHONDONTWRITEBYTECODE=1
+
 REM ---- Tim Python ----
 set PY=
 for %%C in (python py python3) do (

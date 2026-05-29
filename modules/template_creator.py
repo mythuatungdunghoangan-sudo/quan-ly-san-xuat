@@ -3,22 +3,21 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from pathlib import Path
 
+_NHAN_BASE_COLS  = ["STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
+                    "Tên sản phẩm", "Mã sản phẩm", "Số lượng nhãn", "Kích thước nhãn",
+                    "Nội dung in", "Màu sắc", "Chất liệu", "Ghi chú"]
+_HOP_BASE_COLS   = ["STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
+                    "Tên sản phẩm", "Mã sản phẩm", "Số lượng hộp", "Quy cách (SP/hộp)",
+                    "Kích thước hộp (DxRxC)", "Chất liệu hộp", "In ấn", "Ghi chú"]
+_THUNG_BASE_COLS = ["STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
+                    "Tên sản phẩm", "Mã sản phẩm", "Số lượng thùng", "Số hộp/thùng",
+                    "Kích thước thùng (DxRxC)", "Trọng lượng (kg)", "Ghi chú"]
+
 TEMPLATE_COLUMNS = {
-    "Nhãn": [
-        "STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
-        "Tên sản phẩm", "Mã sản phẩm", "Số lượng nhãn", "Kích thước nhãn",
-        "Nội dung in", "Màu sắc", "Chất liệu", "Ghi chú",
-    ],
-    "Hộp": [
-        "STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
-        "Tên sản phẩm", "Mã sản phẩm", "Số lượng hộp", "Quy cách (SP/hộp)",
-        "Kích thước hộp (DxRxC)", "Chất liệu hộp", "In ấn", "Ghi chú",
-    ],
-    "Thùng": [
-        "STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
-        "Tên sản phẩm", "Mã sản phẩm", "Số lượng thùng", "Số hộp/thùng",
-        "Kích thước thùng (DxRxC)", "Trọng lượng (kg)", "Ghi chú",
-    ],
+    "Nhãn C115":    _NHAN_BASE_COLS,
+    "Nhãn Decan":   _NHAN_BASE_COLS,
+    "Hộp":          _HOP_BASE_COLS,
+    "Thùng carton": _THUNG_BASE_COLS,
     "Túi màng": [
         "STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
         "Tên sản phẩm", "Mã sản phẩm", "Số lượng", "Đơn vị",
@@ -31,11 +30,12 @@ TEMPLATE_COLUMNS = {
 }
 
 SHEET_COLORS = {
-    "Nhãn": "4472C4",
-    "Hộp": "70AD47",
-    "Thùng": "ED7D31",
-    "Túi màng": "FF0066",
-    "Tổng hợp": "7030A0",
+    "Nhãn C115":    "2E75B6",  # xanh dương đậm
+    "Nhãn Decan":   "9DC3E6",  # xanh dương nhạt
+    "Hộp":          "70AD47",  # xanh lá
+    "Thùng carton": "ED7D31",  # cam
+    "Túi màng":     "FF0066",  # đỏ hồng
+    "Tổng hợp":     "7030A0",  # tím
 }
 
 _COLUMN_WIDTHS = {

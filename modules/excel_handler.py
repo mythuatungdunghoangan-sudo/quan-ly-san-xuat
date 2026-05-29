@@ -99,18 +99,44 @@ def append_rows(ws, records: list[dict], order_info: dict):
         ws.row_dimensions[row].height = 18
 
 
+_SL_COLS = ("Số lượng nhãn", "Số lượng hộp", "Số lượng thùng")
+
+
+def _get_or_create_ws(wb, sheet_name: str, sample_records: list[dict]):
+    """Trả về worksheet hiện có hoặc tạo mới với header."""
+    if sheet_name in wb.sheetnames:
+        return wb[sheet_name]
+    ws = wb.create_sheet(sheet_name)
+    color = SHEET_COLORS.get(sheet_name, "4472C4")
+    cols = TEMPLATE_COLUMNS.get(sheet_name, list(sample_records[0].keys()) if sample_records else [])
+    from openpyxl.styles import Font as F, PatternFill as P, Alignment as A
+    hfont = F(bold=True, color="FFFFFF", size=11, name="Calibri")
+    hfill = P(start_color=color, end_color=color, fill_type="solid")
+    halign = A(horizontal="center", vertical="center")
+    for c, h in enumerate(cols, 1):
+        cell = ws.cell(row=1, column=c, value=h)
+        cell.font = hfont
+        cell.fill = hfill
+        cell.alignment = halign
+    ws.freeze_panes = "A2"
+    ws.sheet_properties.tabColor = color
+    return ws
+
+
 def export_to_bytes(template_path: str | Path, extracted_list: list[dict]) -> bytes:
     """
-    Write all extracted items to the template and return the result as bytes.
+    Ghi dữ liệu vào template:
+    - Mỗi sản phẩm → sheet chuyên biệt tương ứng
+    - Sheet "Tổng hợp" nhận TẤT CẢ sản phẩm từ mọi sheet (để đối chiếu)
     extracted_list items: {sheet, data: list[dict]|DataFrame, order_info}
     """
     wb = openpyxl.load_workbook(template_path)
+    tonghop_rows: list[dict] = []
 
     for item in extracted_list:
         sheet_name = item["sheet"]
         order_info = item.get("order_info") or {}
 
-        # Normalise data to list[dict]
         raw_data = item.get("data", [])
         if hasattr(raw_data, "to_dict"):
             records = raw_data.to_dict("records")
@@ -120,25 +146,27 @@ def export_to_bytes(template_path: str | Path, extracted_list: list[dict]) -> by
         if not records:
             continue
 
-        if sheet_name in wb.sheetnames:
-            ws = wb[sheet_name]
-        else:
-            ws = wb.create_sheet(sheet_name)
-            color = SHEET_COLORS.get(sheet_name, "4472C4")
-            cols = TEMPLATE_COLUMNS.get(sheet_name, list(records[0].keys()))
-            from openpyxl.styles import Font as F, PatternFill as P, Alignment as A
-            header_font = F(bold=True, color="FFFFFF", size=11, name="Calibri")
-            header_fill = P(start_color=color, end_color=color, fill_type="solid")
-            header_align = A(horizontal="center", vertical="center")
-            for c, h in enumerate(cols, 1):
-                cell = ws.cell(row=1, column=c, value=h)
-                cell.font = header_font
-                cell.fill = header_fill
-                cell.alignment = header_align
-            ws.freeze_panes = "A2"
-            ws.sheet_properties.tabColor = color
+        # Ghi vào sheet chuyên biệt (bỏ qua "Tổng hợp" — sẽ ghi riêng ở cuối)
+        if sheet_name != "Tổng hợp":
+            ws = _get_or_create_ws(wb, sheet_name, records)
+            append_rows(ws, records, order_info)
 
-        append_rows(ws, records, order_info)
+        # Thu thập tất cả cho sheet Tổng hợp (kể cả sản phẩm chưa phân loại)
+        for rec in records:
+            th_rec = dict(rec)
+            th_rec["Loại"] = sheet_name
+            # Chuẩn hóa "Số lượng" từ cột chuyên biệt nếu cần
+            if not _clean(th_rec.get("Số lượng", "")):
+                for qty_col in _SL_COLS:
+                    if _clean(th_rec.get(qty_col, "")):
+                        th_rec["Số lượng"] = th_rec[qty_col]
+                        break
+            tonghop_rows.append(th_rec)
+
+    # Ghi TẤT CẢ vào sheet Tổng hợp
+    if tonghop_rows:
+        ws_th = _get_or_create_ws(wb, "Tổng hợp", tonghop_rows)
+        append_rows(ws_th, tonghop_rows, {})
 
     buf = io.BytesIO()
     wb.save(buf)

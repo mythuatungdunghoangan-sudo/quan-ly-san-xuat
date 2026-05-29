@@ -31,16 +31,27 @@ TEMPLATE_PATH = Path("template/ke_hoach_san_xuat.xlsx")
 
 # Màu badge mỗi loại
 _SHEET_BADGE = {
-    "Nhãn":     "🔵",
-    "Hộp":      "🟢",
-    "Thùng":    "🟠",
-    "Túi màng": "🔴",
-    "Tổng hợp": "🟣",
+    "Nhãn C115":    "🔵",
+    "Nhãn Decan":   "🩵",
+    "Hộp":          "🟢",
+    "Thùng carton": "🟠",
+    "Túi màng":     "🔴",
+    "Tổng hợp":     "🟣",
 }
 
 
 def ensure_template() -> Path:
-    if not TEMPLATE_PATH.exists():
+    needs_create = not TEMPLATE_PATH.exists()
+    if not needs_create:
+        # Tạo lại nếu template cũ thiếu sheet mới
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(TEMPLATE_PATH)
+            if not all(s in wb.sheetnames for s in TEMPLATE_COLUMNS):
+                needs_create = True
+        except Exception:
+            needs_create = True
+    if needs_create:
         create_template(TEMPLATE_PATH)
     return TEMPLATE_PATH
 
@@ -87,29 +98,14 @@ with st.sidebar:
     with st.expander("📖 Hướng dẫn"):
         st.markdown("""
 **Phân loại tự động:**
-- 🔵 **Nhãn** — nhãn, label, tem, sticker
-- 🟢 **Hộp** — hộp, box, hộp giấy
-- 🟠 **Thùng** — thùng, carton
+- 🔵 **Nhãn C115** — nhãn, label, nhãn giấy, C115
+- 🩵 **Nhãn Decan** — Tem, Decan, Bế, sticker
+- 🟢 **Hộp** — tất cả loại hộp (carton, bồi, Duplex...)
+- 🟠 **Thùng carton** — tất cả loại thùng
 - 🔴 **Túi màng** — túi, màng PE/PP, ziplock
-- 🟣 **Tổng hợp** — không nhận ra loại
+- 🟣 **Tổng hợp** — tổng hợp tất cả
 
 **Bạn có thể sửa cột "Loại" trước khi xuất.**
-
-**Các bước:**
-1. Upload file đơn hàng (PDF / ảnh / Excel)
-2. Kiểm tra bảng — cột **Loại** đã tự phân loại
-3. Sửa Loại nếu cần
-4. Nhấn **Xuất Excel**
-""")
-        st.markdown("---")
-        st.markdown("""
-**Từ khoá nhận dạng:**
-| Loại | Từ khoá |
-|---|---|
-| Nhãn | nhãn, label, tem, sticker |
-| Hộp | hộp, box |
-| Thùng | thùng, carton |
-| Túi màng | túi, màng, PE, PP, ziplock |
 """)
 
 
@@ -271,6 +267,8 @@ if grouped:
             ) or "—",
         })
     st.dataframe(pd.DataFrame(summary_data), width="stretch", hide_index=True)
+
+    st.caption("💡 Sheet **Tổng hợp** trong file Excel sẽ chứa **tất cả sản phẩm** từ mọi loại để dễ đối chiếu kiểm tra.")
 
     if st.button("📥 Xuất file kế hoạch sản xuất", type="primary", width="stretch"):
         with st.spinner("Đang ghi vào template…"):

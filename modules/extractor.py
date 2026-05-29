@@ -68,6 +68,13 @@ _CUSTOMER_STOP_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Tên đơn vị nhận in — loại trừ khỏi cột Khách hàng
+_OWN_COMPANY_RE = re.compile(r'ho[àa]ng\s*an', re.IGNORECASE)
+
+
+def _is_own_company(name: str) -> bool:
+    return bool(_OWN_COMPANY_RE.search(name))
+
 
 def _extract_letterhead_company(text: str) -> str:
     """
@@ -88,23 +95,28 @@ def _extract_letterhead_company(text: str) -> str:
 
 
 def parse_order_info(text: str) -> dict:
-    # Ưu tiên 1: tên công ty từ letterhead đầu văn bản (dòng tiêu đề công ty)
-    customer = _extract_letterhead_company(text)
+    customer = ""
 
-    # Ưu tiên 2: các label tường minh trong văn bản
+    # Ưu tiên 1: label tường minh ("Kính gửi:", "Khách hàng:", ...)
+    for pat in _VN_CUSTOMER:
+        m = re.search(pat, text, re.IGNORECASE)
+        if not m:
+            continue
+        val = m.group(1).strip()
+        if _PERSON_TITLE_RE.match(val):
+            continue
+        m_stop = _CUSTOMER_STOP_RE.search(val)
+        candidate = val[:m_stop.start()].strip() if m_stop else val[:80].strip()
+        # Bỏ qua nếu là tên đơn vị nhận in (Hoàng An)
+        if candidate and not _is_own_company(candidate):
+            customer = candidate
+            break
+
+    # Ưu tiên 2: letterhead đầu văn bản (fallback)
     if not customer:
-        for pat in _VN_CUSTOMER:
-            m = re.search(pat, text, re.IGNORECASE)
-            if not m:
-                continue
-            val = m.group(1).strip()
-            if _PERSON_TITLE_RE.match(val):
-                continue
-            m_stop = _CUSTOMER_STOP_RE.search(val)
-            candidate = val[:m_stop.start()].strip() if m_stop else val[:80].strip()
-            if candidate:
-                customer = candidate
-                break
+        letterhead = _extract_letterhead_company(text)
+        if letterhead and not _is_own_company(letterhead):
+            customer = letterhead
 
     return {
         "order_id": _first_match(_VN_ORDER_ID, text),
@@ -161,7 +173,7 @@ def map_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _find_header_row(df_raw: pd.DataFrame):
-    """Return index of the row with the most column-header keywords (best match)."""
+    """Return index of the row with the most individual cells matching header keywords."""
     keywords = {
         "tên hàng", "tên hàng hóa", "tên sản phẩm", "tên sp",
         "số lượng", "sl", "qty", "quantity",
@@ -170,10 +182,11 @@ def _find_header_row(df_raw: pd.DataFrame):
     }
     best_idx, best_score = None, 0
     for i, row in df_raw.iterrows():
-        row_text = " ".join(
-            re.sub(r'\s+', ' ', str(v).lower()) for v in row if pd.notna(v)
+        # Đếm số cell khớp thay vì tổng keyword — tránh merged-cell bự được điểm cao giả
+        score = sum(
+            1 for v in row
+            if pd.notna(v) and any(kw in re.sub(r'\s+', ' ', str(v).lower()) for kw in keywords)
         )
-        score = sum(1 for kw in keywords if kw in row_text)
         if score > best_score:
             best_score, best_idx = score, i
     return best_idx if best_score >= 1 else None
@@ -183,54 +196,104 @@ def _find_header_row(df_raw: pd.DataFrame):
 # Post-processing: tách kích thước + phân loại sheet tự động
 # ---------------------------------------------------------------------------
 
-# Pattern: số x số x số (cm/mm tuỳ chọn)
+# Pattern: số x số (x số tuỳ chọn) (cm/mm tuỳ chọn) — nhận cả 2D và 3D
 _DIM_RE = re.compile(
-    r'(\d+[\.,]?\d*\s*[xX×]\s*\d+[\.,]?\d*\s*[xX×]\s*\d+[\.,]?\d*'
+    r'(\d+[\.,]?\d*\s*[xX×]\s*\d+[\.,]?\d*'
+    r'(?:\s*[xX×]\s*\d+[\.,]?\d*)?'
     r'(?:\s*(?:cm|mm))?)'
     r'(?:\s+KTPB)?',
     re.IGNORECASE,
 )
 _SUFFIX_RE = re.compile(r'\s*[-–]\s*$|\s+KTPB\s*$', re.IGNORECASE)
 
-# Từ khoá phân loại — thứ tự ưu tiên từ trên xuống
-SHEET_NAMES_ALL = ["Nhãn", "Hộp", "Thùng", "Túi màng", "Tổng hợp"]
-
-_CLASSIFY_RULES: list[tuple[str, list[str]]] = [
-    ("Nhãn",     ["nhãn", "nhản", "nhan ", "label", "sticker", "tem ", "decal",
-                  "nhãn dán", "nhan dan"]),
-    ("Hộp",      ["hộp ", "hop ", "hộp giấy", "hộp cứng", "hộp màu", "hộp in",
-                  " box ", "folding box"]),
-    ("Thùng",    ["thùng", "thung ", "carton", "thùng mẹ", "thùng con",
-                  "thung me", "thung con", "master carton", "outer carton"]),
-    ("Túi màng", ["túi ", "tui ", "túi zip", "ziplock", "zip lock",
-                  "màng co", "mang co", "màng pe", "mang pe",
-                  "màng pp", "mang pp", "màng bopp", "mang bopp",
-                  "bao bì pe", "bao bi pe", "bao bì pp", "bao bi pp",
-                  "túi đứng", "túi nằm", "túi dẹt", "stand up pouch",
-                  "film ", " opp ", "bopp"]),
+SHEET_NAMES_ALL = [
+    "Nhãn C115", "Nhãn Decan",
+    "Hộp",
+    "Thùng carton",
+    "Túi màng",
+    "Tổng hợp",
 ]
+
+# ── Từ khoá nhận dạng nhãn ───────────────────────────────────────────────────
+_NHAN_BASE_KW  = ["nhãn", "nhản", "nhan ", "label"]
+_NHAN_DECAN_KW = ["tem ", "decan", "nhãn decan", "nhan decan",
+                   "sticker", "bế ", "be dán", "be dan",
+                   "nhãn dán", "nhan dan"]                       # Nhãn Decan
+_NHAN_C115_KW  = ["c115", "nhãn giấy", "nhan giay", "giấy c1"] # Nhãn C115
+
+# ── Từ khoá túi màng ─────────────────────────────────────────────────────────
+_TUI_KW = ["túi ", "tui ", "túi zip", "ziplock", "zip lock",
+           "màng co", "mang co", "màng pe", "mang pe",
+           "màng pp", "mang pp", "màng bopp", "mang bopp",
+           "bao bì pe", "bao bi pe", "bao bì pp", "bao bi pp",
+           "túi đứng", "túi nằm", "túi dẹt", "stand up pouch",
+           "film ", " opp ", "bopp"]
+
+# ── Từ khoá loại chính (hộp / thùng) ─────────────────────────────────────────
+_HOP_KW   = ["hộp ", "hop ", "hộp giấy", "hộp cứng", "hộp màu", "hộp in",
+              " box ", "folding box"]
+_THUNG_KW = ["thùng", "thung ", "master carton", "outer carton"]
+
+# ── Từ khoá sub-type hộp / thùng ─────────────────────────────────────────────
+# Chỉ Duplex 350/400 là Hộp Duplex — Duplex 250g chỉ là chất liệu bồi, không phải loại hộp
+_HOP_DUP_KW = ["duplex 350", "duplex 400", "dup 350", "dup 400"]
+_HOP_BOI_KW = ["bồi", "boi ", "d250", "d 250", "giấy d",
+               "carton e", "carton b", "e flute", "b flute"]
 
 
 def classify_sheet(product_name: str) -> str:
     """
-    Phân loại theo 2 bước:
-    1. Ưu tiên kiểm tra 25 ký tự đầu (tránh bắt từ khoá ở giữa mô tả)
-    2. Nếu không khớp → tìm toàn bộ chuỗi
+    Phân loại phân cấp: xác định loại chính → sub-type.
+    Ưu tiên 25 ký tự đầu để tránh bắt từ khoá giữa tên.
     """
-    name_low = product_name.lower()
+    name_low   = product_name.lower()
     name_start = name_low[:25]
     name_full  = f" {name_low} "
 
-    # Bước 1: khớp đầu tên → ưu tiên cao
-    for sheet, keywords in _CLASSIFY_RULES:
-        for kw in keywords:
-            if name_start.startswith(kw.strip()):
-                return sheet
+    def _any(kws): return any(k in name_full for k in kws)
 
-    # Bước 2: tìm toàn văn
-    for sheet, keywords in _CLASSIFY_RULES:
-        if any(kw in name_full for kw in keywords):
-            return sheet
+    # ── Nhãn ──────────────────────────────────────────────
+    # Decan/tem/bế → Nhãn Decan; tất cả còn lại (kể cả C115 và generic) → Nhãn C115
+    is_nhan = any(name_start.startswith(k.strip()) for k in _NHAN_BASE_KW) \
+              or _any(_NHAN_BASE_KW) or _any(_NHAN_DECAN_KW) or _any(_NHAN_C115_KW)
+    if is_nhan:
+        if _any(_NHAN_DECAN_KW):
+            return "Nhãn Decan"
+        return "Nhãn C115"
+
+    # ── Túi màng ──────────────────────────────────────────
+    if _any(_TUI_KW):
+        return "Túi màng"
+
+    # ── Xác định loại chính từ đầu tên ────────────────────
+    starts_hop   = any(name_start.startswith(k.strip()) for k in _HOP_KW)
+    starts_thung = any(name_start.startswith(k.strip()) for k in _THUNG_KW)
+
+    is_hop   = starts_hop or _any(_HOP_KW)
+    is_thung = starts_thung or _any(_THUNG_KW)
+
+    # "carton" đơn thuần → thùng — nhưng chỉ khi không có ngữ cảnh hộp
+    if "carton" in name_full and not is_hop:
+        is_thung = True
+
+    # Từ khoá vật liệu hộp (bồi, D250...) → đây là hộp khi không xác định được thùng
+    if _any(_HOP_BOI_KW) and not starts_thung:
+        is_hop = True
+
+    # Khi cả hai có mặt, ưu tiên loại đứng đầu tên
+    if is_hop and is_thung:
+        if starts_thung:
+            is_hop = False   # "Thùng... x 20 hộp" → thùng thắng
+        else:
+            is_thung = False  # "Hộp...", "Giấy bồi carton sóng E" → hộp thắng
+
+    # ── Hộp — tất cả vào một sheet ───────────────────────
+    if is_hop:
+        return "Hộp"
+
+    # ── Thùng — tất cả vào một sheet ─────────────────────
+    if is_thung:
+        return "Thùng carton"
 
     return "Tổng hợp"
 
@@ -260,7 +323,7 @@ def _postprocess(records: list[dict]) -> list[dict]:
     """
     Với mỗi record:
     - Tách kích thước ra cột 'Kích thước'
-    - Tự động gán cột '_sheet'
+    - Gán cột '_sheet': dùng '_sheet_hint' (từ tên sheet Excel) nếu có, ngược lại phân loại theo tên sản phẩm
     - Lọc bỏ dòng trắng và dòng tổng cộng/VAT
     """
     out = []
@@ -292,8 +355,9 @@ def _postprocess(records: list[dict]) -> list[dict]:
             if dim:
                 rec["Kích thước"] = dim
 
-        # Phân loại sheet tự động (có thể user ghi đè trong UI)
-        rec["_sheet"] = classify_sheet(sp)
+        # Phân loại sheet: ưu tiên hint từ tên sheet Excel, fallback theo tên sản phẩm
+        hint = str(rec.pop("_sheet_hint", "") or "").strip()
+        rec["_sheet"] = hint if hint and hint != "Tổng hợp" else classify_sheet(sp)
 
         out.append(rec)
     return out
@@ -351,13 +415,11 @@ def _from_excel(uploaded_file) -> dict:
         header_row = _find_header_row(raw)
 
         if header_row is not None:
-            # Extract order info from rows above the table header
             pre_text = " ".join(
                 str(v) for i, row in raw.iterrows() if i < header_row
                 for v in row if pd.notna(v)
             )
             order_info.update({k: v for k, v in parse_order_info(pre_text).items() if v})
-
             df = pd.read_excel(xls, sheet_name=sheet_name, header=header_row)
         else:
             df = pd.read_excel(xls, sheet_name=sheet_name)
@@ -366,6 +428,12 @@ def _from_excel(uploaded_file) -> dict:
         if df.empty:
             continue
         df = map_columns(df)
+
+        # Nếu tên sheet khớp chủng loại → dùng làm phân loại trực tiếp
+        sheet_type = classify_sheet(sheet_name)
+        if sheet_type != "Tổng hợp":
+            df["_sheet_hint"] = sheet_type
+
         all_frames.append(df)
 
     if not all_frames:
@@ -541,27 +609,40 @@ def _from_image_ocr(uploaded_file) -> dict:
 # Claude API — PDF
 # ---------------------------------------------------------------------------
 
-_CLAUDE_PROMPT = """Bạn là trợ lý đọc đơn hàng sản xuất. Hãy bóc tách thông tin từ nội dung sau thành JSON:
+_CLAUDE_PROMPT = """Bạn là trợ lý đọc đơn hàng sản xuất in ấn/bao bì Việt Nam. Bóc tách toàn bộ sản phẩm thành JSON:
 {
   "order_info": {
-    "order_id": "",
-    "customer": "tên công ty đặt hàng (KHÔNG ghi tên người liên hệ như Anh/Chị X, chỉ ghi tên công ty)",
+    "order_id": "mã đơn hàng hoặc số PO (để trống nếu không có)",
+    "customer": "tên công ty đặt hàng (KHÔNG ghi tên người liên hệ, KHÔNG ghi Hoàng An)",
     "order_date": "dd/mm/yyyy",
     "delivery_date": "dd/mm/yyyy"
   },
   "products": [
     {
-      "Tên sản phẩm": "",
+      "Tên sản phẩm": "tên đầy đủ, không kèm kích thước nếu có thể tách riêng",
       "Mã sản phẩm": "",
-      "Số lượng": "",
-      "Đơn vị": "",
-      "Kích thước": "",
+      "Số lượng": "chỉ số, không kèm đơn vị",
+      "Đơn vị": "cái/hộp/thùng/cuộn/kg...",
+      "Kích thước": "VD: 10x15 cm hoặc 10x15x5 cm",
       "Màu sắc": "",
-      "Ghi chú": ""
+      "Ghi chú": "",
+      "sheet": "phân loại theo quy tắc dưới đây"
     }
   ]
 }
-Chỉ trả về JSON thuần, không giải thích thêm.
+
+Quy tắc phân loại trường "sheet" (chọn đúng 1 trong 6 giá trị):
+- "Nhãn C115"    : nhãn giấy, label, C115, nhãn in offset (KHÔNG phải tem/decan/sticker)
+- "Nhãn Decan"   : tem, decal, decan, sticker, nhãn dán, bế nhãn, nhãn tự dính
+- "Hộp"          : hộp giấy, hộp màu, hộp bồi, hộp Duplex, hộp carton, hộp in
+- "Thùng carton" : thùng carton, thùng đựng, master carton, outer carton, thùng sóng
+- "Túi màng"     : túi PE/PP/OPP/BOPP, túi ziplock, màng co, túi đứng, film bao gói
+- "Tổng hợp"     : không khớp loại nào trên
+
+Lưu ý quan trọng:
+- Liệt kê TẤT CẢ sản phẩm, không bỏ sót dòng nào
+- Bỏ qua các dòng tổng cộng, VAT, chữ ký, địa chỉ
+- Chỉ trả về JSON thuần, không giải thích thêm
 
 Nội dung:
 """
@@ -577,6 +658,27 @@ def _parse_claude_json(text: str) -> dict | None:
         return None
 
 
+_MAX_CHUNK = 40_000  # ký tự / lần gọi Claude
+
+
+def _call_claude_extract(client, text_chunk: str) -> dict | None:
+    msg = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": _CLAUDE_PROMPT + text_chunk}],
+    )
+    return _parse_claude_json(msg.content[0].text)
+
+
+def _apply_claude_sheet_hints(products: list[dict]) -> list[dict]:
+    """Chuyển trường 'sheet' Claude trả về thành '_sheet_hint' cho _postprocess."""
+    for rec in products:
+        claude_sheet = str(rec.pop("sheet", "") or "").strip()
+        if claude_sheet in SHEET_NAMES_ALL:
+            rec["_sheet_hint"] = claude_sheet
+    return products
+
+
 def _from_pdf_claude(uploaded_file, api_key: str) -> dict:
     try:
         import anthropic
@@ -589,7 +691,7 @@ def _from_pdf_claude(uploaded_file, api_key: str) -> dict:
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for page in pdf.pages:
-                full_text += page.extract_text() or ""
+                full_text += (page.extract_text() or "") + "\n"
     except Exception:
         pass
 
@@ -597,16 +699,32 @@ def _from_pdf_claude(uploaded_file, api_key: str) -> dict:
         return _err("PDF rỗng hoặc là ảnh scan — không thể đọc text. Hãy chuyển sang ảnh.")
 
     client = anthropic.Anthropic(api_key=api_key)
-    msg = client.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=2048,
-        messages=[{"role": "user", "content": _CLAUDE_PROMPT + full_text[:4000]}],
-    )
-    parsed = _parse_claude_json(msg.content[0].text)
-    if not parsed:
+
+    # Chia chunk nếu text quá dài — tránh mất sản phẩm cuối file
+    if len(full_text) <= _MAX_CHUNK:
+        chunks = [full_text]
+    else:
+        chunks = [full_text[i:i + _MAX_CHUNK] for i in range(0, len(full_text), _MAX_CHUNK)]
+
+    all_products: list[dict] = []
+    order_info: dict = {}
+    for chunk in chunks:
+        parsed = _call_claude_extract(client, chunk)
+        if not parsed:
+            continue
+        if not order_info:
+            oi = parsed.get("order_info", {})
+            if _is_own_company(oi.get("customer", "")):
+                oi["customer"] = ""
+            order_info = oi
+        all_products.extend(parsed.get("products", []))
+
+    if not all_products and not order_info:
         return _err("Claude không trả về JSON hợp lệ")
 
-    return _ok(parsed.get("products", []), parsed.get("order_info", {}))
+    all_products = _apply_claude_sheet_hints(all_products)
+    records = _postprocess(all_products)
+    return _ok(records, order_info)
 
 
 # ---------------------------------------------------------------------------
@@ -633,18 +751,13 @@ def _from_image_claude(uploaded_file, api_key: str) -> dict:
 
     client = anthropic.Anthropic(api_key=api_key)
     msg = client.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=2048,
+        model="claude-sonnet-4-6",
+        max_tokens=4096,
         messages=[{
             "role": "user",
             "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-                {"type": "text", "text": (
-                    "Đây là ảnh đơn hàng sản xuất. Hãy đọc và bóc tách thành JSON:\n"
-                    '{"order_info":{"order_id":"","customer":"","order_date":"dd/mm/yyyy","delivery_date":"dd/mm/yyyy"},'
-                    '"products":[{"Tên sản phẩm":"","Mã sản phẩm":"","Số lượng":"","Đơn vị":"","Kích thước":"","Màu sắc":"","Ghi chú":""}]}'
-                    "\nChỉ trả về JSON thuần."
-                )},
+                {"type": "text", "text": _CLAUDE_PROMPT + "(ảnh đơn hàng)"},
             ],
         }],
     )
@@ -652,4 +765,9 @@ def _from_image_claude(uploaded_file, api_key: str) -> dict:
     if not parsed:
         return _err("Claude không trả về JSON hợp lệ")
 
-    return _ok(parsed.get("products", []), parsed.get("order_info", {}))
+    products = _apply_claude_sheet_hints(parsed.get("products", []))
+    records = _postprocess(products)
+    oi = parsed.get("order_info", {})
+    if _is_own_company(oi.get("customer", "")):
+        oi["customer"] = ""
+    return _ok(records, oi)
