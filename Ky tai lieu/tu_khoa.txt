@@ -1,0 +1,67 @@
+# ============================================================
+#  Danh sách từ khóa tìm vị trí đặt chữ ký
+# ============================================================
+#
+# Định dạng mỗi dòng:
+#   từ_khóa | below/above | tên hiển thị | ưu_tiên | khoảng_cách
+#
+#   below         = chữ ký đặt BÊN DƯỚI từ khóa
+#   above         = chữ ký đặt BÊN TRÊN từ khóa
+#   ưu_tiên       = số nguyên, càng NHỎ càng ưu tiên hơn (mặc định: 5)
+#                   Khi tìm thấy nhiều từ khóa, chọn cái có ưu tiên NHỎ NHẤT
+#   khoảng_cách   = điểm PDF, khoảng cách từ từ khóa đến chữ ký (mặc định: 4)
+#                   Số lớn = chữ ký xa dòng chữ hơn
+#
+# Dòng bắt đầu bằng # là ghi chú, được bỏ qua.
+# ============================================================
+
+# ── ƯU TIÊN 1: Tên công ty Hoàng An (cao nhất) ───────────────────────────────
+CÔNG TY HOÀNG AN            | below | Công ty Hoàng An           | 1 |  8
+Cong ty Hoang An             | below | Công ty Hoàng An           | 1 |  8
+
+# ── ƯU TIÊN 2: Xác nhận / bên sản xuất ──────────────────────────────────────
+XÁC NHẬN                    | below | XÁC NHẬN (Hoàng An)        | 2 |  6
+Xác nhận                    | below | Xác nhận (Hoàng An)        | 2 |  6
+Xác nhận nhà sản xuất       | below | Xác nhận nhà sản xuất      | 2 |  6
+Xac nhan nha san xuat        | below | Xác nhận nhà sản xuất      | 2 |  6
+Bên sản xuất                | below | Bên sản xuất               | 2 |  6
+Ben san xuat                 | below | Bên sản xuất               | 2 |  6
+Nhà sản xuất                | below | Nhà sản xuất               | 2 |  6
+Nha san xuat                 | below | Nhà sản xuất               | 2 |  6
+Bên bán                     | below | Bên bán                    | 2 |  6
+Ben ban                      | below | Bên bán                    | 2 |  6
+
+# ── ƯU TIÊN 3: Xác nhận đơn hàng / bên đặt hàng ─────────────────────────────
+Xác nhận đơn đặt hàng       | below | Xác nhận đơn đặt hàng     | 3 |  6
+Xac nhan don dat hang         | below | Xác nhận đơn đặt hàng     | 3 |  6
+Bên đặt hàng                | below | Bên đặt hàng (KH)         | 3 |  6
+Ben dat hang                  | below | Bên đặt hàng (KH)         | 3 |  6
+Bên mua                     | below | Bên mua (KH)               | 3 |  6
+Ben mua                      | below | Bên mua (KH)               | 3 |  6
+Trưởng bộ phận              | below | Trưởng bộ phận (I.FI)     | 3 | 60
+Truong bo phan               | below | Trưởng bộ phận (I.FI)     | 3 | 60
+
+# ── ƯU TIÊN 4: Tên người — thấp hơn tên công ty ─────────────────────────────
+Nguyễn Minh Hoàng           | above | Nguyễn Minh Hoàng         | 4 |  6
+Nguyen Minh Hoang            | above | Nguyễn Minh Hoàng         | 4 |  6
+
+# ── ƯU TIÊN 5: Ký tên chung ──────────────────────────────────────────────────
+(Ký, họ tên)                | below | (Ký, họ tên)              | 5 |  4
+Ký, họ tên                  | below | Ký, họ tên                | 5 |  4
+Ky, ho ten                   | below | Ký, họ tên                | 5 |  4
+Ký tên                      | below | Ký tên                    | 5 |  4
+Ky ten                       | below | Ký tên                    | 5 |  4
+Chữ ký                      | below | Chữ ký                    | 5 |  4
+Chu ky                       | below | Chữ ký                    | 5 |  4
+Đại diện                    | below | Đại diện                  | 5 |  4
+Dai dien                     | below | Đại diện                  | 5 |  4
+
+# ── ƯU TIÊN 6: Chức danh ─────────────────────────────────────────────────────
+Tổng Giám đốc               | above | Tổng Giám đốc             | 6 |  4
+Tong Giam doc                | above | Tổng Giám đốc             | 6 |  4
+Giám đốc                    | above | Giám đốc                  | 6 |  4
+Giam doc                     | above | Giám đốc                  | 6 |  4
+Trưởng phòng                | above | Trưởng phòng              | 6 |  4
+Truong phong                 | above | Trưởng phòng              | 6 |  4
+
+# ── THÊM MỚI (bạn thêm từ khóa ở đây) ───────────────────────────────────────

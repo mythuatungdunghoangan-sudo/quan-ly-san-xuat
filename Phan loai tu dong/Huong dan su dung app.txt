@@ -1,11 +1,11 @@
 ============================================================
-  QUẢN LÝ SẢN XUẤT — Hướng dẫn sử dụng
-  Cập nhật: 28/05/2026
+  PHÂN LOẠI ĐƠN HÀNG — Hướng dẫn sử dụng
+  Cập nhật: 05/06/2026
 ============================================================
 
 Ứng dụng giúp bóc tách đơn hàng tự động từ file PDF, ảnh chụp,
 hoặc Excel của khách hàng, rồi tổng hợp vào file kế hoạch sản
-xuất Excel (5 sheet: Nhãn · Hộp · Thùng · Túi màng · Tổng hợp).
+xuất Excel (6 sheet: Nhãn C115 · Nhãn Decan · Hộp · Thùng · Túi màng · Tổng hợp).
 
 
 ------------------------------------------------------------
@@ -16,7 +16,7 @@ xuất Excel (5 sheet: Nhãn · Hộp · Thùng · Túi màng · Tổng hợp).
   → quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app
 
   Trên máy tính (offline):
-  → Double-click file  run.bat
+  → Double-click file  Phan loai tu dong.bat
 
 
 ------------------------------------------------------------
@@ -26,21 +26,22 @@ xuất Excel (5 sheet: Nhãn · Hộp · Thùng · Túi màng · Tổng hợp).
   Bước 1: Copy thư mục QuanLySanXuat vào máy
            (qua USB, OneDrive, hoặc tải từ GitHub)
 
-  Bước 2: Double-click  cai_dat.bat
+  Bước 2: Vào thư mục "Phan loai tu dong"
+           Double-click  cai_dat.bat
            → Tự cài Python nếu chưa có (cần internet ~27MB)
            → Tự cài toàn bộ thư viện cần thiết
            → Chờ 2–5 phút
 
-  Bước 3: Double-click  run.bat  để mở app
+  Bước 3: Double-click  Phan loai tu dong.bat  để mở app
 
-  Từ lần sau: chỉ cần  run.bat  là đủ.
+  Từ lần sau: chỉ cần  Phan loai tu dong.bat  là đủ.
 
 
 ------------------------------------------------------------
   CÁCH SỬ DỤNG HÀNG NGÀY
 ------------------------------------------------------------
 
-  1. Mở app (run.bat hoặc link cloud)
+  1. Mở app (Phan loai tu dong.bat hoặc link cloud)
 
   2. Nhập Claude API Key vào sidebar (tùy chọn, nên có)
      - Không có key: chỉ đọc được PDF có text và Excel
@@ -70,7 +71,7 @@ xuất Excel (5 sheet: Nhãn · Hộp · Thùng · Túi màng · Tổng hợp).
   "đẩy code lên GitHub"
   → Claude tự chạy lệnh, cloud cập nhật sau 1–2 phút
 
-  Hoặc tự chạy trong PowerShell:
+  Hoặc tự chạy trong PowerShell (thư mục QuanLySanXuat):
     git add .
     git commit -m "mô tả thay đổi"
     git push
@@ -91,6 +92,7 @@ xuất Excel (5 sheet: Nhãn · Hộp · Thùng · Túi màng · Tổng hợp).
   5. Tải code về:
      git clone https://github.com/mythuatungdunghoangan-sudo/quan-ly-san-xuat.git QuanLySanXuat
   6. Cài thư viện:
+     cd "QuanLySanXuat\Phan loai tu dong"
      pip install -r requirements.txt
   7. Mở Claude Code:
      cd QuanLySanXuat → gõ: claude
@@ -103,16 +105,16 @@ xuất Excel (5 sheet: Nhãn · Hộp · Thùng · Túi màng · Tổng hợp).
 
   GitHub   : github.com/mythuatungdunghoangan-sudo/quan-ly-san-xuat
   Cloud    : quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app
-  Python   : 3.14  |  Streamlit : 1.57
-  AI Model : claude-opus-4-5 (Anthropic)
+  Python   : 3.11+  |  Streamlit : 1.57
+  AI Model : claude-sonnet-4-6 (Anthropic)
 
-  Thư mục dự án:
-  ├── app.py              ← Giao diện chính
-  ├── run.bat             ← Mở app
-  ├── cai_dat.bat         ← Cài đặt máy mới
-  ├── HUONG_DAN.md        ← Hướng dẫn đầy đủ (markdown)
-  ├── CAI_DAT_MAY_MOI.md  ← Cài đặt từ đầu (markdown)
-  ├── CLAUDE.md           ← Context cho Claude Code
-  └── modules/            ← Code xử lý dữ liệu
+  Thư mục app:
+  Phan loai tu dong/
+  ├── app.py                  ← Giao diện chính
+  ├── Phan loai tu dong.bat   ← Mở app
+  ├── cai_dat.bat             ← Cài đặt máy mới
+  ├── HUONG_DAN.md            ← Hướng dẫn đầy đủ (markdown)
+  ├── CAI_DAT_MAY_MOI.md      ← Cài đặt từ đầu (markdown)
+  └── modules/                ← Code xử lý dữ liệu
 
 ============================================================

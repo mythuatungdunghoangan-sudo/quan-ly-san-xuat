@@ -10,12 +10,20 @@
 
 ---
 
+## Các app trong dự án
+
+| App | Thư mục | Entry point | Port | Link Cloud |
+|---|---|---|---|---|
+| **Phân loại đơn hàng** | `Phan loai tu dong/` | `app.py` | 8501 | `quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app` |
+| **Ký tài liệu** | `Ky tai lieu/` | `ky_tai_lieu.py` | 8502 | *(đang deploy)* |
+
 ## Triển khai & truy cập
 
 | Môi trường | Địa chỉ / Cách dùng |
 |---|---|
-| **Cloud (Streamlit Community)** | `quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app` |
-| **Local (máy hiện tại)** | Double-click `run.bat` → `http://localhost:8501` |
+| **Cloud — Phân loại đơn hàng** | `quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app` |
+| **Local — Phân loại đơn hàng** | Double-click `Phan loai tu dong\Phan loai tu dong.bat` → `http://localhost:8501` |
+| **Local — Ký tài liệu** | Double-click `Ky tai lieu\Ky tai lieu.bat` → `http://localhost:8502` |
 | **GitHub (source code)** | `github.com/mythuatungdunghoangan-sudo/quan-ly-san-xuat` |
 
 ---
@@ -23,9 +31,10 @@
 ## Cách chạy ứng dụng
 
 ```
-run.bat          # double-click, trình duyệt tự mở localhost:8501
+Phan loai tu dong\Phan loai tu dong.bat    # double-click, mở localhost:8501
+Ky tai lieu\Ky tai lieu.bat               # double-click, mở localhost:8502
 ```
-Hoặc: `cd "D:\OneDrive\Claude\QuanLySanXuat"` → `python -m streamlit run app.py`
+Hoặc thủ công: `cd "Phan loai tu dong"` → `python -m streamlit run app.py`
 
 `run.bat` đặt `PYTHONDONTWRITEBYTECODE=1` — Python không tạo `__pycache__`, tránh sync rác lên OneDrive.
 
@@ -54,19 +63,27 @@ Sau khi push, Streamlit Cloud tự triển khai lại trong ~1–2 phút.
 ## Cấu trúc thư mục
 
 ```
-QuanLySanXuat/
-├── app.py                      # Entry point — giao diện Streamlit
-├── run.bat / cai_dat.bat       # Chạy / cài đặt
-├── requirements.txt
-├── CLAUDE.md                   # File này
+QuanLySanXuat/                          # Thư mục gốc (git repo)
+├── CLAUDE.md                           # File này
 ├── HUONG_DAN.md / CAI_DAT_MAY_MOI.md
-├── .streamlit/config.toml      # Theme xanh #4472C4, port 8501
-├── modules/
-│   ├── template_creator.py     # Tạo file Excel template (6 sheet)
-│   ├── extractor.py            # Bóc tách dữ liệu từ PDF/ảnh/Excel
-│   └── excel_handler.py        # Ghi dữ liệu vào template, xuất file
-└── template/
-    └── ke_hoach_san_xuat.xlsx  # Template Excel (tự tạo/tái tạo khi thiếu sheet)
+├── Phan loai tu dong/                  # App phân loại đơn hàng
+│   ├── app.py                          # Entry point
+│   ├── Phan loai tu dong.bat           # Launcher port 8501
+│   ├── cai_dat.bat / requirements.txt
+│   ├── .streamlit/config.toml          # Theme xanh #4472C4, port 8501
+│   ├── modules/
+│   │   ├── template_creator.py         # Tạo Excel template (6 sheet)
+│   │   ├── extractor.py                # Bóc tách dữ liệu PDF/ảnh/Excel
+│   │   └── excel_handler.py            # Ghi dữ liệu vào template
+│   └── template/
+│       └── ke_hoach_san_xuat.xlsx
+└── Ky tai lieu/                        # App ký tài liệu
+    ├── ky_tai_lieu.py                  # Entry point (toàn bộ code)
+    ├── Ky tai lieu.bat                 # Launcher port 8502
+    ├── requirements.txt
+    ├── tu_khoa.txt                     # Từ khóa tìm vị trí ký
+    └── chu_ky/
+        └── Chu ky Hoang.png            # Ảnh chữ ký
 ```
 
 ---

@@ -23,14 +23,14 @@ Xong. Không cần cài đặt gì cả.
 - **Cách từ GitHub:** Tải file ZIP tại:
   `github.com/mythuatungdunghoangan-sudo/quan-ly-san-xuat` → nút **Code** → **Download ZIP** → giải nén
 
-**Bước 2:** Double-click **`cai_dat.bat`**
+**Bước 2:** Vào thư mục `Phan loai tu dong`, double-click **`cai_dat.bat`**
 - Tự tải và cài Python nếu chưa có (cần internet, ~27MB)
 - Tự cài toàn bộ thư viện
 - Chờ 2–5 phút
 
-**Bước 3:** Double-click **`run.bat`** để mở app
+**Bước 3:** Double-click **`Phan loai tu dong.bat`** để mở app
 
-> Từ lần sau chỉ cần **`run.bat`**, không cần chạy lại `cai_dat.bat`.
+> Từ lần sau chỉ cần **`Phan loai tu dong.bat`**, không cần chạy lại `cai_dat.bat`.
 
 ---
 
@@ -103,7 +103,7 @@ Thư mục `QuanLySanXuat` sẽ được tạo với toàn bộ code mới nhấ
 ### Bước 6 — Cài thư viện Python
 
 ```
-cd "D:\OneDrive\Claude\QuanLySanXuat"
+cd "D:\OneDrive\Claude\QuanLySanXuat\Phan loai tu dong"
 pip install -r requirements.txt
 ```
 
@@ -113,7 +113,7 @@ Hoặc double-click `cai_dat.bat` như Phần 1.
 
 ### Bước 7 — Mở Claude Code và bắt đầu làm việc
 
-Cách 1 — Double-click file `MoClaudeCode_QuanLySanXuat.bat` (nếu có trên máy cũ copy sang)
+Cách 1 — Double-click file `MoClaudeCode_QuanLySanXuat.bat` (ở thư mục gốc `QuanLySanXuat`)
 
 Cách 2 — Mở PowerShell trong thư mục `QuanLySanXuat`, gõ:
 ```
@@ -127,7 +127,7 @@ Lần đầu tiên Claude Code sẽ yêu cầu đăng nhập tài khoản Anthro
 ## Tóm tắt nhanh
 
 ```
-Chỉ chạy app    →  Vào link cloud  HOẶC  cai_dat.bat → run.bat
+Chỉ chạy app    →  Vào link cloud  HOẶC  cai_dat.bat → Phan loai tu dong.bat
 Lập trình       →  Git → Python → Node.js → Claude Code → git clone → pip install
 ```
 

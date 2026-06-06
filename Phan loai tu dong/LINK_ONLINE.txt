@@ -1,0 +1,16 @@
+============================================================
+  LINK TRUY CẬP ONLINE — Phân Loại Đơn Hàng
+============================================================
+
+  Mở trình duyệt, dán link sau vào thanh địa chỉ:
+
+  quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app
+
+  → Không cần cài đặt gì, dùng được trên mọi máy tính,
+    điện thoại, máy tính bảng có kết nối internet.
+
+  → Link này luôn trỏ đến phiên bản mới nhất.
+    Khi code được cập nhật và push lên GitHub,
+    link tự động cập nhật sau 1–2 phút.
+
+============================================================

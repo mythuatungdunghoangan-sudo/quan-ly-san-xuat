@@ -1,10 +1,10 @@
-# Hướng dẫn sử dụng — Quản Lý Sản Xuất
+# Hướng dẫn sử dụng — Phân Loại Đơn Hàng
 
 ## Giới thiệu
 
 Ứng dụng web giúp **bóc tách đơn hàng tự động** từ file PDF, ảnh chụp, hoặc Excel của khách hàng, rồi tổng hợp vào một file kế hoạch sản xuất Excel thống nhất.
 
-**Hỗ trợ:** Nhãn · Hộp · Thùng/Carton · Túi màng
+**Hỗ trợ:** Nhãn C115 · Nhãn Decan · Hộp · Thùng carton · Túi màng
 
 ---
 
@@ -13,7 +13,7 @@
 | Cách | Địa chỉ | Khi nào dùng |
 |---|---|---|
 | **Cloud (khuyến nghị)** | `quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app` | Dùng mọi nơi, không cần cài đặt |
-| **Máy tính cá nhân** | Chạy `run.bat` → mở `http://localhost:8501` | Dùng offline, không cần internet |
+| **Máy tính cá nhân** | Double-click `Phan loai tu dong.bat` → `http://localhost:8501` | Dùng offline |
 
 ---
 
@@ -21,13 +21,13 @@
 
 > Chỉ cần làm **một lần duy nhất** trên mỗi máy.
 
-1. Copy toàn bộ thư mục `QuanLySanXuat` vào máy
+1. Copy toàn bộ thư mục `Phan loai tu dong` vào máy
 2. Đảm bảo máy có kết nối internet
 3. Double-click **`cai_dat.bat`**
    - Tự động tải và cài Python nếu chưa có
    - Tự động cài toàn bộ thư viện cần thiết
    - Thời gian: 2–5 phút
-4. Sau khi xong → double-click **`run.bat`** để mở app
+4. Sau khi xong → double-click **`Phan loai tu dong.bat`** để mở app
 
 ---
 
@@ -62,34 +62,17 @@ Có thể upload **nhiều file cùng lúc** (nhiều công ty khác nhau).
 
 App hiển thị bảng dữ liệu đã bóc tách — bạn có thể:
 - Sửa trực tiếp ô nào sai
-- Đổi cột **"Loại"** (Nhãn / Hộp / Thùng / Túi màng) nếu phân loại chưa đúng
+- Đổi cột **"Loại"** nếu phân loại chưa đúng
 
 ### Bước 5 — Xuất file kế hoạch
 
 Bấm **"Tổng hợp và tải về Excel"** → tải file kế hoạch sản xuất về máy.
 
-File Excel có 5 sheet: **Nhãn · Hộp · Thùng · Túi màng · Tổng hợp** — dữ liệu tự động phân vào đúng sheet.
+File Excel có 6 sheet: **Nhãn C115 · Nhãn Decan · Hộp · Thùng carton · Túi màng · Tổng hợp**
 
 ---
 
 ## Cập nhật app sau khi chỉnh sửa code
-
-Khi bạn (hoặc Claude Code) chỉnh sửa code trong thư mục `QuanLySanXuat`, cần đẩy lên GitHub để cloud cập nhật.
-
-### Quy trình chuẩn mỗi lần cập nhật
-
-```
-Bước 1: Mở Claude Code trong thư mục QuanLySanXuat
-Bước 2: Yêu cầu chỉnh sửa như bình thường (thêm tính năng, sửa lỗi...)
-Bước 3: Nói "đẩy code lên GitHub" → Claude tự chạy lệnh git
-Bước 4: Chờ 1–2 phút → cloud tự cập nhật, không cần làm gì thêm
-```
-
-> **Lưu ý:** Chỉ cần đẩy lên GitHub — Streamlit Cloud tự động phát hiện và triển khai lại.
-
-### Tự chạy tay (nếu không dùng Claude Code)
-
-Mở PowerShell trong thư mục `QuanLySanXuat`, chạy 3 lệnh:
 
 ```
 git add .
@@ -97,9 +80,7 @@ git commit -m "mô tả thay đổi"
 git push
 ```
 
-### Kiểm tra trạng thái deploy
-
-Vào **share.streamlit.io** → chọn app → xem log nếu app báo lỗi sau khi cập nhật.
+Sau khi push, Streamlit Cloud tự cập nhật trong ~1–2 phút.
 
 ---
 
@@ -107,20 +88,19 @@ Vào **share.streamlit.io** → chọn app → xem log nếu app báo lỗi sau 
 
 | Triệu chứng | Cách xử lý |
 |---|---|
-| App cloud báo lỗi sau update | Vào share.streamlit.io → xem log lỗi → gửi cho Claude Code sửa |
-| `run.bat` không mở được | Chạy lại `cai_dat.bat` một lần nữa |
+| App cloud báo lỗi sau update | Vào share.streamlit.io → xem log lỗi |
+| `Phan loai tu dong.bat` không mở được | Chạy lại `cai_dat.bat` một lần nữa |
 | Bóc tách sai tên sản phẩm | Sửa trực tiếp trong bảng trước khi xuất |
 | PDF scan không đọc được | Cần nhập Claude API key vào sidebar |
-| "nan" xuất hiện trong file Excel | Lỗi đã được fix — cập nhật code mới nhất từ GitHub |
 
 ---
 
 ## Cấu trúc thư mục
 
 ```
-QuanLySanXuat/
+Phan loai tu dong/
 ├── app.py                  ← Giao diện chính
-├── run.bat                 ← Mở app trên máy tính
+├── Phan loai tu dong.bat   ← Mở app trên máy tính
 ├── cai_dat.bat             ← Cài đặt lần đầu (máy mới)
 ├── requirements.txt        ← Danh sách thư viện Python
 ├── modules/
@@ -128,9 +108,7 @@ QuanLySanXuat/
 │   ├── excel_handler.py    ← Ghi dữ liệu vào template
 │   └── template_creator.py ← Tạo file Excel mẫu
 ├── template/               ← File template (tự tạo khi chạy)
-├── .streamlit/
-│   └── config.toml         ← Cấu hình giao diện Streamlit
-└── HUONG_DAN.md            ← File này
+└── .streamlit/config.toml  ← Cấu hình giao diện Streamlit
 ```
 
 ---
@@ -138,6 +116,6 @@ QuanLySanXuat/
 ## Thông tin kỹ thuật
 
 - **Python** 3.11+ · **Streamlit** 1.57
-- **AI:** Anthropic Claude (claude-opus-4-5) — Vision + Text
+- **AI:** Anthropic Claude (claude-sonnet-4-6) — Vision + Text
 - **GitHub:** github.com/mythuatungdunghoangan-sudo/quan-ly-san-xuat
 - **Cloud URL:** quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app

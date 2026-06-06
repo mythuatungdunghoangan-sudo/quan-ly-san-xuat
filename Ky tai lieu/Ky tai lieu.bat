@@ -24,10 +24,6 @@ if not defined PY (
         "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
         "%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
         "%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
-        "C:\Python314\python.exe"
-        "C:\Python313\python.exe"
-        "C:\Python312\python.exe"
-        "C:\Python311\python.exe"
     ) do (
         if not defined PY (
             if exist %%D set PY=%%D
@@ -38,18 +34,6 @@ if not defined PY (
 if not defined PY (
     echo  [LOI] Khong tim thay Python! Chay cai_dat.bat truoc.
     pause & exit /b 1
-)
-
-"%PY%" -c "import fitz, streamlit_drawable_canvas" >nul 2>&1
-if errorlevel 1 (
-    echo  Cai thu vien lan dau (1-2 phut)...
-    "%PY%" -m pip install -r "%~dp0requirements.txt" --quiet
-    if errorlevel 1 (
-        echo  [LOI] Cai thu vien that bai. Kiem tra ket noi internet.
-        pause & exit /b 1
-    )
-    echo  [OK] Da cai xong.
-    echo.
 )
 
 echo  Dang khoi dong... Mo trinh duyet tai:
