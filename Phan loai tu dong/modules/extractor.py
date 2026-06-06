@@ -26,8 +26,8 @@ _VN_CUSTOMER = [
     r'kính\s*gửi[:\s]+((?:công\s*ty|cty|tnhh|cp\b)[^\n]{2,70})',
     # "Kính gửi: Anh X / Công ty Y" → lấy phần sau dấu /
     r'kính\s*gửi[:\s]+(?:anh|chị|chi|ông|ong|bà|ba|mr\.?|ms\.?|mrs\.?)[^/\n]+/\s*([^\n]{3,60})',
-    # "Kính gửi: X" — chỉ lấy nếu X không phải tên người
-    r'kính\s*gửi[:\s]+(?!(?:anh|chị|chi|ông|ong|bà|ba|mr\.?|ms\.?|mrs\.?)\s)([^\n]{3,80})',
+    # "Kính gửi: X" — chỉ lấy nếu X không phải tên người / ngày tháng
+    r'kính\s*gửi[:\s]+(?!(?:anh|chị|chi|ông|ong|bà|ba|mr\.?|ms\.?|mrs\.?|ngày|ngay)\s?)([^\n]{3,80})',
     # Fallback cuối: "Đơn vị", generic
     r'(?:đơn\s*vị|customer|client)[:\s]+([^\n]{3,60})',
 ]
@@ -128,6 +128,9 @@ def parse_order_info(text: str) -> dict:
             continue
         m_stop = _CUSTOMER_STOP_RE.search(val)
         candidate = val[:m_stop.start()].strip() if m_stop else val[:80].strip()
+        # Bỏ qua nếu trông như ngày tháng hoặc số
+        if re.match(r'^(?:ngày|ngay|\d)', candidate, re.IGNORECASE):
+            continue
         # Bỏ qua nếu là tên đơn vị nhận in (Hoàng An)
         if candidate and not _is_own_company(candidate):
             customer = candidate
