@@ -76,14 +76,23 @@ def _is_own_company(name: str) -> bool:
     return bool(_OWN_COMPANY_RE.search(name))
 
 
+_LETTERHEAD_NOISE_RE = re.compile(
+    r'\d{1,3}[,/]\s*(?:đường|phố|phường|quận|huyện|tỉnh|tp\.?)'  # địa chỉ
+    r'|\b0\d{8,9}\b|\(\d{2,4}\)'                                   # điện thoại
+    r'|@|www\.|http|fax\s*:|mst\s*:|email\s*:|tel\s*:|website',    # liên hệ
+    re.IGNORECASE,
+)
+
+
 def _extract_letterhead_company(text: str) -> str:
     """
     Trích tên công ty từ phần letterhead đầu văn bản (trước 'Kính gửi'/'Đơn đặt hàng').
-    VD: 'CÔNG TY TNHH BIG CROP\\n51 Đường...' → 'CÔNG TY TNHH BIG CROP'
+    Ưu tiên dòng có 'Công ty', fallback là dòng đầu tiên trông giống tên tổ chức.
     """
     m_end = _HEADER_END_RE.search(text)
     header_zone = text[:m_end.start()] if m_end else text[:400]
 
+    # Ưu tiên: dòng chứa "Công ty ..."
     m = re.search(
         r'(công\s*ty\s+(?:tnhh\s+|cổ\s*phần\s+|cp\s+|hợp\s*danh\s+)?[^\n,;]{2,60}?)'
         r'(?:\n|,|;|địa\s*chỉ|điện\s*thoại|đt\s*:|mst\s*:|$)',
@@ -91,6 +100,18 @@ def _extract_letterhead_company(text: str) -> str:
     )
     if m:
         return m.group(1).strip()
+
+    # Fallback: dòng đầu tiên trông như tên tổ chức (không phải địa chỉ/SĐT)
+    for line in header_zone.splitlines():
+        line = line.strip()
+        if len(line) < 3 or len(line) > 80:
+            continue
+        if _LETTERHEAD_NOISE_RE.search(line):
+            continue
+        if re.match(r'^\d', line):   # bắt đầu bằng số → địa chỉ/mã số
+            continue
+        return line
+
     return ""
 
 
@@ -432,10 +453,14 @@ def _from_excel(uploaded_file) -> dict:
         header_row = _find_header_row(raw)
 
         if header_row is not None:
-            pre_text = " ".join(
-                str(v) for i, row in raw.iterrows() if i < header_row
-                for v in row if pd.notna(v)
-            )
+            lines = []
+            for i, row in raw.iterrows():
+                if i >= header_row:
+                    break
+                line = " ".join(str(v) for v in row if pd.notna(v))
+                if line.strip():
+                    lines.append(line.strip())
+            pre_text = "\n".join(lines)
             order_info.update({k: v for k, v in parse_order_info(pre_text).items() if v})
             df = pd.read_excel(xls, sheet_name=sheet_name, header=header_row)
         else:
