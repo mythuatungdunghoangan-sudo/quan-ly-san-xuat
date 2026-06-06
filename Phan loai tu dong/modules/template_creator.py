@@ -3,6 +3,9 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from pathlib import Path
 
+_NHAN_C115_COLS  = ["STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
+                    "Tên sản phẩm", "Rộng", "Cao", "Số lượng nhãn",
+                    "Mã sản phẩm", "Nội dung in", "Màu sắc", "Chất liệu", "Ghi chú"]
 _NHAN_BASE_COLS  = ["STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
                     "Tên sản phẩm", "Mã sản phẩm", "Số lượng nhãn", "Kích thước nhãn",
                     "Nội dung in", "Màu sắc", "Chất liệu", "Ghi chú"]
@@ -14,7 +17,7 @@ _THUNG_BASE_COLS = ["STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "N
                     "Kích thước thùng (DxRxC)", "Trọng lượng (kg)", "Ghi chú"]
 
 TEMPLATE_COLUMNS = {
-    "Nhãn C115":    _NHAN_BASE_COLS,
+    "Nhãn C115":    _NHAN_C115_COLS,
     "Nhãn Decan":   _NHAN_BASE_COLS,
     "Hộp":          _HOP_BASE_COLS,
     "Thùng carton": _THUNG_BASE_COLS,
@@ -53,6 +56,8 @@ _COLUMN_WIDTHS = {
     "Kích thước túi (RxC)": 22,
     "Chất liệu màng": 18,
     "Độ dày (micron)": 16,
+    "Rộng": 10,
+    "Cao": 10,
     "Kích thước nhãn": 20,
     "Kích thước hộp (DxRxC)": 24,
     "Kích thước thùng (DxRxC)": 24,

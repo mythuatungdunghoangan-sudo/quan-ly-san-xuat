@@ -298,6 +298,17 @@ def classify_sheet(product_name: str) -> str:
     return "Tổng hợp"
 
 
+_DIM_SPLIT_RE = re.compile(r'\s*[xX×]\s*')
+
+
+def _split_rong_cao(dim_str: str) -> tuple[str, str]:
+    """'30x50mm' → ('30', '50mm'), '100x200x50' → ('100', '200')"""
+    parts = _DIM_SPLIT_RE.split(dim_str.strip())
+    if len(parts) >= 2:
+        return parts[0].strip(), parts[1].strip()
+    return dim_str, ""
+
+
 def _split_name_size(name: str) -> tuple[str, str]:
     m = _DIM_RE.search(name)
     if not m:
@@ -358,6 +369,12 @@ def _postprocess(records: list[dict]) -> list[dict]:
         # Phân loại sheet: ưu tiên hint từ tên sheet Excel, fallback theo tên sản phẩm
         hint = str(rec.pop("_sheet_hint", "") or "").strip()
         rec["_sheet"] = hint if hint and hint != "Tổng hợp" else classify_sheet(sp)
+
+        # Nhãn C115: tách Kích thước → Rộng + Cao (2 cột riêng)
+        if rec["_sheet"] == "Nhãn C115" and rec.get("Kích thước"):
+            rong, cao = _split_rong_cao(str(rec["Kích thước"]))
+            rec["Rộng"] = rong
+            rec["Cao"] = cao
 
         out.append(rec)
     return out
