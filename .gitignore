@@ -10,3 +10,7 @@ Bao cao hinh anh/
 *.jpg
 *.png
 *.jpeg
+# Ngoại lệ: file chữ ký phải có trên Cloud
+!Ky tai lieu/chu_ky/*.png
+!Ky tai lieu/chu_ky/*.jpg
+!Ky tai lieu/chu_ky/*.jpeg
