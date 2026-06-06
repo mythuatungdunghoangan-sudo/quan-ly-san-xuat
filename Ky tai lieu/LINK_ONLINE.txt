@@ -1,0 +1,20 @@
+App Ký tài liệu — Link Cloud:
+https://ky-tai-lieu-hoang-an.streamlit.app
+
+Quản lý trên Streamlit Cloud:
+https://share.streamlit.io
+
+GitHub (source code):
+https://github.com/mythuatungdunghoangan-sudo/quan-ly-san-xuat
+
+Cấu hình deploy:
+- Main file: ky_tai_lieu_app.py (file wrapper ở root repo)
+- Branch: master
+- Python: 3.11
+- Requirements: requirements.txt (ở root repo)
+
+Lưu ý kỹ thuật:
+- Không dùng trực tiếp "Ky tai lieu/ky_tai_lieu.py" làm main file
+  vì tên thư mục có dấu cách → Cloud đọc nhầm đường dẫn requirements
+- File chữ ký: Ky tai lieu/chu_ky/Chu ky Hoang.png (đã commit vào git)
+- Từ khóa tìm vị trí ký: Ky tai lieu/tu_khoa.txt (chỉnh sửa bằng Notepad)

@@ -15,13 +15,14 @@
 | App | Thư mục | Entry point | Port | Link Cloud |
 |---|---|---|---|---|
 | **Phân loại đơn hàng** | `Phan loai tu dong/` | `app.py` | 8501 | `quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app` |
-| **Ký tài liệu** | `Ky tai lieu/` | `ky_tai_lieu.py` | 8502 | *(chưa có link)* |
+| **Ký tài liệu** | `Ky tai lieu/` | `ky_tai_lieu.py` | 8502 | `ky-tai-lieu-hoang-an.streamlit.app` |
 
 ## Triển khai & truy cập
 
 | Môi trường | Địa chỉ / Cách dùng |
 |---|---|
 | **Cloud — Phân loại đơn hàng** | `quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app` |
+| **Cloud — Ký tài liệu** | `ky-tai-lieu-hoang-an.streamlit.app` |
 | **Local — Phân loại đơn hàng** | Double-click `Phan loai tu dong\Phan loai tu dong.bat` → `http://localhost:8501` |
 | **Local — Ký tài liệu** | Double-click `Ky tai lieu\Ky tai lieu.bat` → `http://localhost:8502` |
 | **GitHub (source code)** | `github.com/mythuatungdunghoangan-sudo/quan-ly-san-xuat` |
