@@ -5,7 +5,7 @@
 Ứng dụng web (Streamlit) tổng hợp đơn hàng sản xuất: nhận file đơn hàng từ khách hàng (PDF, ảnh, Excel), bóc tách dữ liệu tự động, ghi vào file kế hoạch sản xuất theo template định sẵn.
 
 **Lĩnh vực:** In ấn / bao bì — nhãn (label), hộp (box), thùng (carton).  
-**Tech stack:** Python 3.10+ · Streamlit 1.57+ · pandas · openpyxl · pdfplumber · Anthropic SDK.  
+**Tech stack:** Python 3.11 · Streamlit · pandas · openpyxl · pdfplumber · Anthropic SDK.  
 **Đơn vị sản xuất:** CÔNG TY TNHH MỸ THUẬT ỨNG DỤNG BAO BÌ HOÀNG AN (không bao giờ xuất hiện ở cột Khách hàng).
 
 ---
@@ -15,7 +15,7 @@
 | App | Thư mục | Entry point | Port | Link Cloud |
 |---|---|---|---|---|
 | **Phân loại đơn hàng** | `Phan loai tu dong/` | `app.py` | 8501 | `quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app` |
-| **Ký tài liệu** | `Ky tai lieu/` | `ky_tai_lieu.py` | 8502 | *(đang deploy)* |
+| **Ký tài liệu** | `Ky tai lieu/` | `ky_tai_lieu.py` | 8502 | *(chưa có link)* |
 
 ## Triển khai & truy cập
 
