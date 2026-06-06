@@ -370,8 +370,8 @@ def _postprocess(records: list[dict]) -> list[dict]:
         hint = str(rec.pop("_sheet_hint", "") or "").strip()
         rec["_sheet"] = hint if hint and hint != "Tổng hợp" else classify_sheet(sp)
 
-        # Nhãn C115: tách Kích thước → Rộng + Cao (2 cột riêng)
-        if rec["_sheet"] == "Nhãn C115" and rec.get("Kích thước"):
+        # Nhãn C115 & Nhãn Decan: tách Kích thước → Rộng + Cao (2 cột riêng)
+        if rec["_sheet"] in ("Nhãn C115", "Nhãn Decan") and rec.get("Kích thước"):
             rong, cao = _split_rong_cao(str(rec["Kích thước"]))
             rec["Rộng"] = rong
             rec["Cao"] = cao

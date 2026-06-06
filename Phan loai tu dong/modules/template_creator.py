@@ -18,7 +18,7 @@ _THUNG_BASE_COLS = ["STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "N
 
 TEMPLATE_COLUMNS = {
     "Nhãn C115":    _NHAN_C115_COLS,
-    "Nhãn Decan":   _NHAN_BASE_COLS,
+    "Nhãn Decan":   _NHAN_C115_COLS,
     "Hộp":          _HOP_BASE_COLS,
     "Thùng carton": _THUNG_BASE_COLS,
     "Túi màng": [
