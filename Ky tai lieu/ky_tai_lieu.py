@@ -463,6 +463,57 @@ def sign_excel_file(excel_bytes: bytes, sig_img, position: str,
 
     return out_buf.getvalue(), info
 
+def sign_word_file(docx_bytes: bytes, sig_img, width_cm: float = 4.0) -> tuple:
+    """Chèn chữ ký vào Word (.docx). Tìm keyword rồi thêm ảnh sau đó, hoặc cuối tài liệu."""
+    from docx import Document
+    from docx.shared import Cm
+    from docx.oxml import OxmlElement
+    from docx.text.paragraph import Paragraph as DocxParagraph
+
+    doc = Document(io.BytesIO(docx_bytes))
+
+    sig_buf = io.BytesIO()
+    sig_img.convert("RGB").save(sig_buf, "PNG")
+    sig_buf.seek(0)
+
+    target_para = None
+    found_kw = None
+
+    def _search(paras):
+        nonlocal target_para, found_kw
+        for para in paras:
+            t = para.text.lower()
+            for kw in _SIGN_KW_XL:
+                if kw in t:
+                    target_para = para; found_kw = kw; return True
+        return False
+
+    _search(doc.paragraphs)
+    if not target_para:
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if _search(cell.paragraphs): break
+                if target_para: break
+            if target_para: break
+
+    if target_para:
+        new_p = OxmlElement('w:p')
+        target_para._p.addnext(new_p)
+        new_para = DocxParagraph(new_p, target_para._parent)
+        run = new_para.add_run()
+        run.add_picture(sig_buf, width=Cm(width_cm))
+        info = f"Tìm thấy [{found_kw}] → ký ngay dưới"
+    else:
+        para = doc.add_paragraph()
+        run = para.add_run()
+        run.add_picture(sig_buf, width=Cm(width_cm))
+        info = "Không tìm thấy keyword → ký ở cuối tài liệu"
+
+    out_buf = io.BytesIO()
+    doc.save(out_buf)
+    return out_buf.getvalue(), info
+
 def create_zip(results: list) -> bytes:
     """Tạo ZIP từ danh sách kết quả ký hàng loạt."""
     buf = io.BytesIO()
@@ -505,6 +556,10 @@ def process_one_file(name: str, data: bytes, sig_img, kw, place,
         elif ext in (".xlsx", ".xls"):
             out, xl_info = sign_excel_file(data, sig_img, img_position)
             detail = xl_info
+            out_name = f"da_ky_{name}"
+        elif ext == ".docx":
+            out, word_info = sign_word_file(data, sig_img)
+            detail = word_info
             out_name = f"da_ky_{name}"
         else:
             return {"name": name, "status": "⏭️ Bỏ qua",
@@ -577,8 +632,8 @@ tab_single, tab_batch = st.tabs(["📄 Ký một file", "📚 Ký hàng loạt"]
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_single:
     uploaded_doc = st.file_uploader(
-        "Tải lên tài liệu cần ký (PDF, ảnh hoặc Excel)",
-        type=["pdf","png","jpg","jpeg","xlsx","xls"], key="single_upload")
+        "Tải lên tài liệu cần ký (PDF, ảnh, Excel hoặc Word)",
+        type=["pdf","png","jpg","jpeg","xlsx","xls","docx"], key="single_upload")
     if not uploaded_doc:
         st.info("Tải lên file để bắt đầu.")
     else:
@@ -586,6 +641,7 @@ with tab_single:
         _ext_s    = uploaded_doc.name.lower()
         is_pdf    = _ext_s.endswith(".pdf")
         is_excel  = _ext_s.endswith((".xlsx", ".xls"))
+        is_word   = _ext_s.endswith(".docx")
         file_id   = uploaded_doc.name + str(len(doc_bytes))
         if st.session_state.last_file_id != file_id:
             st.session_state.last_file_id  = file_id
@@ -657,7 +713,35 @@ with tab_single:
                     st.info(f"Không hiển thị được bảng: {ep}")
 
         # ══════════════════════════════════════════════════════════════════════
-        # PDF + ẢNH — Tab 1 (giữ nguyên như cũ)
+        # WORD — Tab 1
+        # ══════════════════════════════════════════════════════════════════════
+        elif is_word:
+            sig = st.session_state.sig_active
+            with col_left:
+                st.subheader("📝 Ký file Word")
+                width_cm = st.slider("Kích thước chữ ký (cm)", 2.0, 10.0, 4.0, 0.5, key="s_word_w")
+                st.divider()
+                st.subheader("📥 Xuất file")
+                if st.button("🖊 Xuất Word đã ký", type="primary",
+                             use_container_width=True, key="s_word_export"):
+                    stem = Path(uploaded_doc.name).stem
+                    with st.spinner("Đang xử lý..."):
+                        try:
+                            out, word_info = sign_word_file(doc_bytes, sig, width_cm)
+                            st.download_button(
+                                "⬇️ Tải Word đã ký", data=out,
+                                file_name=f"da_ky_{stem}.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                use_container_width=True)
+                            st.success(word_info)
+                        except Exception as e:
+                            st.error(f"Lỗi: {e}")
+            with col_right:
+                st.subheader("👁 Xem trước")
+                st.info("Word không hỗ trợ xem trước. Xuất file rồi mở bằng Word để kiểm tra.")
+
+        # ══════════════════════════════════════════════════════════════════════
+        # PDF + ẢNH — Tab 1
         # ══════════════════════════════════════════════════════════════════════
         else:
             with col_left:
@@ -835,8 +919,8 @@ with tab_batch:
 
         if source == "📤 Upload nhiều file":
             uploaded_many = st.file_uploader(
-                "Chọn nhiều file (PDF, ảnh, Excel)",
-                type=["pdf","png","jpg","jpeg","xlsx","xls"],
+                "Chọn nhiều file (PDF, ảnh, Excel, Word)",
+                type=["pdf","png","jpg","jpeg","xlsx","xls","docx"],
                 accept_multiple_files=True, key="b_upload")
             if uploaded_many:
                 files_data = [(f.name, f.read()) for f in uploaded_many]
@@ -1023,6 +1107,7 @@ with tab_batch:
                         ext = _ext(r["name"])
                         mime = ("application/pdf" if ext == ".pdf" else
                                 "image/png" if ext in (".png",".jpg",".jpeg") else
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if ext == ".docx" else
                                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                         st.download_button(
                             f"⬇️ {r.get('out_name', r['name'])}",
