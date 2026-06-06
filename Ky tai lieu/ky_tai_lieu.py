@@ -14,14 +14,15 @@ st.set_page_config(page_title="Ký tài liệu", page_icon="✍️", layout="wid
 st.title("✍️ Ký tài liệu")
 
 # ─── HẰNG SỐ ──────────────────────────────────────────────────────────────────
-CHU_KY_DIR = Path("chu_ky")
+_APP_DIR = Path(__file__).parent
+CHU_KY_DIR = _APP_DIR / "chu_ky"
 CHU_KY_DIR.mkdir(exist_ok=True)
 CHU_KY_SAVE_PATH = CHU_KY_DIR / "chu_ky.png"
 RENDER_DPI = 130
 HA_PRIORITY_MAX = 4   # Từ khóa ưu tiên <= 4 mới được xem là của Hoàng An
 PT_TO_PX = RENDER_DPI / 72
 
-TU_KHOA_FILE = Path("tu_khoa.txt")
+TU_KHOA_FILE = _APP_DIR / "tu_khoa.txt"
 
 def _load_keywords() -> list:
     """Đọc tu_khoa.txt. Cột 4 là số ưu tiên (nhỏ = ưu tiên cao hơn)."""
@@ -527,33 +528,13 @@ with st.sidebar:
             st.session_state.show_change_sig = True; st.rerun()
     else:
         if st.session_state.show_change_sig: st.info("Chọn chữ ký mới:")
-        tab_up, tab_draw = st.tabs(["📤 Upload ảnh","🖊 Vẽ tay"])
         new_sig = None
-        with tab_up:
-            sf = st.file_uploader("Ảnh chữ ký (PNG/JPG)", type=["png","jpg","jpeg"])
-            if sf:
-                loaded = Image.open(sf)
-                rm = st.checkbox("Xóa nền trắng", value=True)
-                new_sig = remove_white_bg(loaded) if rm else loaded.convert("RGBA")
-                st.image(new_sig, use_container_width=True)
-        with tab_draw:
-            try:
-                from streamlit_drawable_canvas import st_canvas
-                c1,c2=st.columns([4,1])
-                with c2:
-                    if st.button("Xóa",use_container_width=True):
-                        st.session_state.canvas_key+=1; st.rerun()
-                cr=st_canvas(stroke_width=3,stroke_color="#111111",
-                             background_color="#f5f5f5",height=150,
-                             drawing_mode="freedraw",
-                             key=f"cv_{st.session_state.canvas_key}",
-                             display_toolbar=False)
-                if cr.image_data is not None:
-                    arr=cr.image_data.astype(np.uint8)
-                    if (arr[:,:,:3].min(axis=2)<180).any():
-                        new_sig=remove_white_bg(Image.fromarray(arr[:,:,:3]),200)
-            except ImportError:
-                st.error("Thiếu streamlit-drawable-canvas")
+        sf = st.file_uploader("Ảnh chữ ký (PNG/JPG)", type=["png","jpg","jpeg"])
+        if sf:
+            loaded = Image.open(sf)
+            rm = st.checkbox("Xóa nền trắng", value=True)
+            new_sig = remove_white_bg(loaded) if rm else loaded.convert("RGBA")
+            st.image(new_sig, use_container_width=True)
         if new_sig is not None:
             st.divider()
             if st.button("💾 Lưu & dùng chữ ký này",type="primary",use_container_width=True):
