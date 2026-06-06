@@ -34,28 +34,52 @@ https://quan-ly-san-xuat-4wnwfzg9zujxcjnfmptdq4.streamlit.app
 
 ## CÒN LÀM TIẾP
 
-### Bước 1 — Push các thay đổi hôm nay lên GitHub
-Mở cmd trong thư mục `QuanLySanXuat`, chạy:
-```
-git add .
-git commit -m "don dep thu muc, them file huong dan vao Phan loai tu dong"
-git push
-```
+### Bước 1 — Push các thay đổi hôm nay lên GitHub ✅ XONG (06/06/2026)
 
-### Bước 2 — Kiểm tra Ky tai lieu trên GitHub
-Vào `github.com/mythuatungdunghoangan-sudo/quan-ly-san-xuat`
-Tìm thư mục `Ky tai lieu` — nếu thấy thì làm tiếp Bước 3.
+### Bước 2 — Kiểm tra Ky tai lieu trên GitHub ✅ XONG
 
-### Bước 3 — Deploy app Ky tai lieu lên Streamlit Cloud
-Vào `share.streamlit.io` → **Create app** → **Deploy a public app from GitHub**
+### Bước 3 — Deploy app Ky tai lieu lên Streamlit Cloud ✅ XONG (06/06/2026)
+- Link: `ky-tai-lieu-hoang-an.streamlit.app`
+- Main file dùng: `ky_tai_lieu_app.py` (wrapper ở root, KHÔNG dùng trực tiếp
+  `Ky tai lieu/ky_tai_lieu.py` vì tên thư mục có dấu cách gây lỗi requirements)
 
-| Trường | Giá trị |
-|---|---|
-| Repository | `mythuatungdunghoangan-sudo/quan-ly-san-xuat` |
-| Branch | `master` |
-| Main file path | `Ky tai lieu/ky_tai_lieu.py` |
+### Bước 4 — Cập nhật link Ky tai lieu ✅ XONG
+- `Ky tai lieu/LINK_ONLINE.txt` đã có link
+- `CLAUDE.md` đã cập nhật
 
-Nhấn **Deploy** → chờ ~2 phút → lấy link.
+---
 
-### Bước 4 — Cập nhật link Ky tai lieu
-Sau khi có link, cập nhật file `Ky tai lieu/LINK_ONLINE.txt` với link mới.
+# Ghi chú công việc — 06/06/2026
+
+---
+
+## ĐÃ LÀM XONG
+
+### 1. Deploy app Ký tài liệu lên Cloud
+- Link: `https://ky-tai-lieu-hoang-an.streamlit.app`
+- Các lỗi đã sửa:
+  - Path `CHU_KY_DIR`, `TU_KHOA_FILE` sai trên Cloud → đổi dùng `Path(__file__).parent`
+  - File chữ ký không lên GitHub (`.gitignore` chặn `*.png`) → thêm exception
+  - Tên thư mục "Ky tai lieu" có dấu cách → Cloud đọc nhầm requirements
+    → Tạo `ky_tai_lieu_app.py` wrapper ở root (giống `app.py`)
+  - Thiếu `pandas` → thêm vào requirements
+  - App crash React DOM do `streamlit-drawable-canvas` → đã fix bằng path
+
+### 2. Thêm tính năng ký file Word (.docx)
+- Tự tìm keyword (CÔNG TY HOÀNG AN, Nguyễn Minh Hoàng...) rồi chèn chữ ký ngay dưới
+- Fallback: ký cuối tài liệu nếu không tìm thấy keyword
+- Hỗ trợ Tab 1 (ký 1 file) và Tab 2 (ký hàng loạt)
+- Thêm `python-docx` vào requirements
+
+---
+
+## CÒN LÀM TIẾP
+
+### Sửa warning `use_container_width` (Streamlit 1.58)
+- Streamlit báo deprecated, cần đổi thành `width='stretch'`
+- Áp dụng cho cả 2 app (Phân loại và Ký tài liệu)
+- Ưu tiên thấp — chỉ là warning, chưa crash app
+
+### Xem trước Word sau khi ký
+- Hiện tại không có preview cho file Word
+- Hướng xử lý sau: convert Word → PDF bằng LibreOffice rồi render
