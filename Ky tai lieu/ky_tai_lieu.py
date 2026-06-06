@@ -528,13 +528,33 @@ with st.sidebar:
             st.session_state.show_change_sig = True; st.rerun()
     else:
         if st.session_state.show_change_sig: st.info("Chọn chữ ký mới:")
+        tab_up, tab_draw = st.tabs(["📤 Upload ảnh","🖊 Vẽ tay"])
         new_sig = None
-        sf = st.file_uploader("Ảnh chữ ký (PNG/JPG)", type=["png","jpg","jpeg"])
-        if sf:
-            loaded = Image.open(sf)
-            rm = st.checkbox("Xóa nền trắng", value=True)
-            new_sig = remove_white_bg(loaded) if rm else loaded.convert("RGBA")
-            st.image(new_sig, use_container_width=True)
+        with tab_up:
+            sf = st.file_uploader("Ảnh chữ ký (PNG/JPG)", type=["png","jpg","jpeg"])
+            if sf:
+                loaded = Image.open(sf)
+                rm = st.checkbox("Xóa nền trắng", value=True)
+                new_sig = remove_white_bg(loaded) if rm else loaded.convert("RGBA")
+                st.image(new_sig, use_container_width=True)
+        with tab_draw:
+            try:
+                from streamlit_drawable_canvas import st_canvas
+                c1,c2=st.columns([4,1])
+                with c2:
+                    if st.button("Xóa",use_container_width=True):
+                        st.session_state.canvas_key+=1; st.rerun()
+                cr=st_canvas(stroke_width=3,stroke_color="#111111",
+                             background_color="#f5f5f5",height=150,
+                             drawing_mode="freedraw",
+                             key=f"cv_{st.session_state.canvas_key}",
+                             display_toolbar=False)
+                if cr.image_data is not None:
+                    arr=cr.image_data.astype(np.uint8)
+                    if (arr[:,:,:3].min(axis=2)<180).any():
+                        new_sig=remove_white_bg(Image.fromarray(arr[:,:,:3]),200)
+            except ImportError:
+                st.info("Tính năng vẽ tay không khả dụng.")
         if new_sig is not None:
             st.divider()
             if st.button("💾 Lưu & dùng chữ ký này",type="primary",use_container_width=True):
