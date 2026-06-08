@@ -63,16 +63,25 @@ with st.sidebar:
     st.divider()
 
     st.subheader("🤖 Claude AI (tùy chọn)")
-    claude_key = st.text_input(
-        "Anthropic API Key",
-        type="password",
-        placeholder="sk-ant-...",
-        help="Gắn key để đọc PDF scan và ảnh thông minh hơn.",
+    use_claude = st.toggle(
+        "Bật Claude AI",
+        value=False,
+        help="Tắt để dùng pdfplumber + OCR miễn phí, không cần key.",
     )
-    if claude_key:
-        st.success("✅ Claude API key đã cấu hình")
+    if use_claude:
+        claude_key = st.text_input(
+            "Anthropic API Key",
+            type="password",
+            placeholder="sk-ant-...",
+            help="Gắn key để đọc PDF scan và ảnh thông minh hơn.",
+        )
+        if claude_key:
+            st.success("✅ Claude AI đang bật")
+        else:
+            st.warning("⚠️ Chưa nhập API key")
     else:
-        st.info("Chưa có key — dùng pdfplumber + OCR")
+        claude_key = ""
+        st.info("Claude AI đang tắt — dùng pdfplumber + OCR")
 
     st.divider()
 
