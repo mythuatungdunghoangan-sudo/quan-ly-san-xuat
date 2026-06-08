@@ -632,6 +632,31 @@ def _from_image_ocr(uploaded_file) -> dict:
             "Hoặc nhập Claude API key để đọc ảnh bằng AI (không cần cài thêm gì)."
         )
 
+    # Tự động tìm Tesseract trên Windows
+    import shutil, os, sys
+    if sys.platform == "win32":
+        # Thử tìm trong PATH trước
+        if not shutil.which("tesseract"):
+            # Tìm các đường dẫn cài đặt phổ biến
+            _TESS_PATHS = [
+                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Programs\Tesseract-OCR\tesseract.exe"),
+                os.path.join(os.environ.get("APPDATA", ""), r"Tesseract-OCR\tesseract.exe"),
+            ]
+            for _p in _TESS_PATHS:
+                if os.path.isfile(_p):
+                    pytesseract.pytesseract.tesseract_cmd = _p
+                    break
+            else:
+                return _err(
+                    "Không tìm thấy Tesseract OCR trên máy.\n"
+                    "Vui lòng cài tại: https://github.com/UB-Mannheim/tesseract/wiki\n"
+                    "Hoặc bật Claude AI và nhập API key để đọc ảnh không cần cài thêm."
+                )
+        else:
+            pytesseract.pytesseract.tesseract_cmd = shutil.which("tesseract")
+
     image = Image.open(uploaded_file)
     try:
         text = pytesseract.image_to_string(image, lang="vie+eng")
