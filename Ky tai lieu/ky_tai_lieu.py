@@ -74,7 +74,7 @@ for e in SIGN_KEYWORDS:
 for k, v in {
     "sig_active": None, "canvas_key": 0, "show_change_sig": False,
     "sig_areas": [], "selected_area_idx": 0, "last_file_id": None,
-    "batch_results": [], "batch_files": [],
+    "batch_results": [], "batch_files": [], "batch_orig_bytes": {},
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -1133,6 +1133,7 @@ with tab_batch:
                                       text=f"Xong {i+1}/{len(files_data)}: {name}")
 
             st.session_state.batch_results = results
+            st.session_state.batch_orig_bytes = {name: data for name, data in files_data}
             status_box.empty()
             progress_bar.progress(1.0, text="Hoàn tất!")
 
@@ -1202,6 +1203,78 @@ with tab_batch:
                             st.info("Không tìm thấy keyword — chữ ký đặt cuối trang.")
                     except Exception as ep:
                         st.info(f"Không xem trước được: {ep}")
+
+                # ── Chỉnh vị trí cho file đang xem ──────────────────────────
+                _orig_b = st.session_state.batch_orig_bytes.get(sel_r["name"])
+                if _orig_b and ext_p in (".pdf", ".png", ".jpg", ".jpeg"):
+                    with st.expander("✏️ Chỉnh vị trí chữ ký cho file này"):
+                        _sig_e = st.session_state.sig_active
+                        _ce1, _ce2 = st.columns(2)
+                        with _ce1:
+                            _ew = st.slider("Kích thước (% chiều rộng)", 5, 60, 22, key="b_ew")
+                        with _ce2:
+                            if ext_p == ".pdf":
+                                _etotal = get_total_pages(_orig_b)
+                                _epg = st.selectbox("Trang", list(range(1, _etotal+1)),
+                                                    index=_etotal-1, key="b_epg")
+                        _ex = st.slider("↔ Ngang (% từ trái)", 0, 95, 65, key="b_ex")
+                        _ey = st.slider("↕ Dọc (% từ trên)",   0, 95, 70, key="b_ey")
+
+                        # Preview cập nhật realtime khi kéo slider
+                        try:
+                            if ext_p == ".pdf":
+                                _base_e = render_pdf_page(_orig_b, _epg - 1)
+                            else:
+                                _base_e = Image.open(io.BytesIO(_orig_b)).convert("RGB")
+                            _bwe, _bhe = _base_e.size
+                            _swe = max(30, int(_bwe * _ew / 100))
+                            _xe  = int(_bwe * _ex / 100)
+                            _ye  = int(_bhe * _ey / 100)
+                            st.image(overlay_sig(_base_e, _sig_e, _xe, _ye, _swe),
+                                     use_container_width=True,
+                                     caption="Kéo slider → xem trước cập nhật ngay")
+                        except Exception as _ep:
+                            st.warning(f"Không xem trước được: {_ep}")
+
+                        if st.button("💾 Lưu vị trí này vào file",
+                                     type="primary", use_container_width=True, key="b_esave"):
+                            try:
+                                if ext_p == ".pdf":
+                                    import fitz as _fz
+                                    _sbuf = io.BytesIO(); _sig_e.save(_sbuf, "PNG")
+                                    _spng = _sbuf.getvalue()
+                                    _ar_e = _sig_e.width / _sig_e.height
+                                    _doc_e = _fz.open(stream=_orig_b, filetype="pdf")
+                                    for _pg_e in _doc_e:
+                                        _pw_e, _ph_e = _pg_e.rect.width, _pg_e.rect.height
+                                        _sw_e = _pw_e * _ew / 100
+                                        _sh_e = _sw_e / _ar_e
+                                        _x_e  = _pw_e * _ex / 100
+                                        _y_e  = _ph_e * _ey / 100
+                                        _pg_e.insert_image(
+                                            _fz.Rect(_x_e, _y_e, _x_e+_sw_e, _y_e+_sh_e),
+                                            stream=_spng)
+                                    _out_e = io.BytesIO(); _doc_e.save(_out_e)
+                                    _new_b = _out_e.getvalue()
+                                else:
+                                    _img_e = Image.open(io.BytesIO(_orig_b)).convert("RGB")
+                                    _bw2, _bh2 = _img_e.size
+                                    _sw2 = max(30, int(_bw2 * _ew / 100))
+                                    _res_e = overlay_sig(_img_e, _sig_e,
+                                                         int(_bw2 * _ex / 100),
+                                                         int(_bh2 * _ey / 100), _sw2)
+                                    _buf_e = io.BytesIO(); _res_e.save(_buf_e, "PNG")
+                                    _new_b = _buf_e.getvalue()
+
+                                for _r_e in st.session_state.batch_results:
+                                    if _r_e["name"] == sel_r["name"]:
+                                        _r_e["bytes"] = _new_b
+                                        _r_e["detail"] += " [đã chỉnh vị trí]"
+                                        break
+                                st.success("Đã cập nhật! Tải file ZIP bên dưới để lấy bản mới.")
+                                st.rerun()
+                            except Exception as _ee:
+                                st.error(f"Lỗi: {_ee}")
 
                 # ── Tải về ───────────────────────────────────────────────────
                 st.divider()
