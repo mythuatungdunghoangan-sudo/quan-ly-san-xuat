@@ -1050,9 +1050,9 @@ with tab_batch:
             recursive = st.checkbox("Bao gồm thư mục con", value=False, key="b_rec")
 
             if st.button("🔎 Quét thư mục", use_container_width=True, key="b_scan_folder"):
-                p = Path(folder_input.strip())
+                p = Path(folder_input.strip().strip('"').strip("'"))
                 if not p.exists() or not p.is_dir():
-                    st.error("Thư mục không tồn tại. Kiểm tra lại đường dẫn.")
+                    st.error(f"Thư mục không tồn tại: `{p}`\n\nKiểm tra lại đường dẫn.")
                 else:
                     pattern = "**/*.pdf" if recursive else "*.pdf"
                     exts = {"*.pdf","*.PDF","*.png","*.jpg","*.jpeg","*.xlsx","*.xls"}
@@ -1171,9 +1171,12 @@ with tab_batch:
                 if ext_p == ".pdf":
                     try:
                         total_p = get_total_pages(sel_r["bytes"])
-                        pg_sel = st.select_slider(
-                            "Trang", options=list(range(1, total_p+1)),
-                            value=total_p, key="b_pg_prev")
+                        if total_p > 1:
+                            pg_sel = st.select_slider(
+                                "Trang", options=list(range(1, total_p+1)),
+                                value=total_p, key="b_pg_prev")
+                        else:
+                            pg_sel = 1
                         prev_img = render_pdf_page(sel_r["bytes"], pg_sel - 1)
                         st.image(prev_img, use_container_width=True,
                                  caption=f"{sel_r['name']} — Trang {pg_sel}/{total_p}")
