@@ -40,6 +40,8 @@ Bên mua                     | below | Bên mua (KH)               | 3 |  6
 Ben mua                      | below | Bên mua (KH)               | 3 |  6
 Trưởng bộ phận              | below | Trưởng bộ phận (I.FI)     | 3 | 60
 Truong bo phan               | below | Trưởng bộ phận (I.FI)     | 3 | 60
+Kế toán trưởng              | below | Kế toán trưởng            | 3 | 30
+Ke toan truong               | below | Kế toán trưởng            | 3 | 30
 
 # ── ƯU TIÊN 4: Tên người — thấp hơn tên công ty ─────────────────────────────
 Nguyễn Minh Hoàng           | above | Nguyễn Minh Hoàng         | 4 |  6

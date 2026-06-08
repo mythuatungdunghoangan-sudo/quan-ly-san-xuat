@@ -60,6 +60,10 @@ def _load_keywords() -> list:
 
 SIGN_KEYWORDS = _load_keywords()
 
+def _strip_accents(s: str) -> str:
+    import unicodedata
+    return unicodedata.normalize('NFD', s.lower()).encode('ascii', 'ignore').decode('ascii')
+
 # labels không trùng để hiển thị dropdown
 _UNIQUE_LABELS = list(dict.fromkeys(e["label"] for e in SIGN_KEYWORDS))
 _LABEL_TO_ENTRY = {}
@@ -278,6 +282,87 @@ def sign_image_file(img_bytes: bytes, img_name: str, sig_img,
     sh = int(sig_img.height * sw / sig_img.width)
     x, y = _manual_xy(bw, bh, sw, sh, position, margin)
     result = overlay_sig(base, sig_img, x, y, sw)
+    buf = io.BytesIO()
+    result.save(buf, "PNG")
+    return buf.getvalue()
+
+def scan_image_for_keywords(img: Image.Image) -> list:
+    """OCR ảnh để tìm vị trí từ khóa. Trả về cùng format với scan_page_for_keywords."""
+    try:
+        import pytesseract
+    except ImportError:
+        return []
+    # Chỉ đường dẫn Tesseract + tessdata tiếng Việt nằm trong thư mục app
+    import sys, os
+    if sys.platform == "win32":
+        _tess = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        if os.path.exists(_tess):
+            pytesseract.pytesseract.tesseract_cmd = _tess
+    _local_tessdata = str(_APP_DIR / "tessdata")
+    if os.path.isdir(_local_tessdata):
+        os.environ["TESSDATA_PREFIX"] = _local_tessdata
+        lang_str = 'vie+eng'
+    else:
+        try:
+            langs = pytesseract.get_languages()
+            lang_str = 'vie+eng' if 'vie' in langs else 'eng'
+        except Exception:
+            lang_str = 'eng'
+    try:
+        data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT,
+                                          lang=lang_str, config='--psm 6')
+    except Exception:
+        return []
+    from collections import defaultdict
+    lines = defaultdict(lambda: {'texts': [], 'boxes': []})
+    for i in range(len(data['text'])):
+        if int(data['conf'][i]) < 0:
+            continue
+        key = (data['page_num'][i], data['block_num'][i],
+               data['par_num'][i],  data['line_num'][i])
+        t = data['text'][i].strip()
+        if t:
+            lines[key]['texts'].append(t)
+            lines[key]['boxes'].append((
+                data['left'][i], data['top'][i],
+                data['left'][i] + data['width'][i],
+                data['top'][i] + data['height'][i],
+            ))
+    found, seen = [], []
+    for key in sorted(lines.keys()):
+        ld = lines[key]
+        if not ld['texts']:
+            continue
+        line_norm = _strip_accents(' '.join(ld['texts']))
+        for entry in SIGN_KEYWORDS:
+            if _strip_accents(entry['kw']) in line_norm:
+                x0 = min(b[0] for b in ld['boxes'])
+                y0 = min(b[1] for b in ld['boxes'])
+                x1 = max(b[2] for b in ld['boxes'])
+                y1 = max(b[3] for b in ld['boxes'])
+                if any(abs(y0 - s) < 8 for s in seen):
+                    continue
+                seen.append(y0)
+                found.append({
+                    'keyword': entry['kw'], 'label': entry['label'],
+                    'place': entry['place'], 'priority': entry.get('priority', 5),
+                    'v_offset': entry.get('v_offset'),
+                    'px': (x0, y0, x1, y1), 'pt': (x0, y0, x1, y1),
+                })
+                break
+    found.sort(key=lambda a: (a.get('priority', 5), a['px'][1]))
+    return found
+
+def sign_image_auto(img_bytes: bytes, sig_img, area: dict,
+                    width_pct: float, v_offset: float) -> bytes:
+    """Ký ảnh theo vị trí từ khóa OCR."""
+    base = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    bw, bh = base.size
+    sw = max(30, int(bw * width_pct / 100))
+    sh = int(sig_img.height * sw / sig_img.width)
+    eff_v = area['v_offset'] if area.get('v_offset') is not None else v_offset
+    x_px, y_px = _sig_xy_px(area, sh, eff_v)
+    result = overlay_sig(base, sig_img, x_px, y_px, sw)
     buf = io.BytesIO()
     result.save(buf, "PNG")
     return buf.getvalue()
@@ -550,8 +635,15 @@ def process_one_file(name: str, data: bytes, sig_img, kw, place,
                     detail += f" | bỏ qua trang {skipped}"
             out_name = f"da_ky_{name}"
         elif ext in (".png", ".jpg", ".jpeg"):
-            out = sign_image_file(data, name, sig_img, img_position, width_pct, img_margin)
-            detail = "Đã ghép chữ ký"
+            _base_img = Image.open(io.BytesIO(data)).convert("RGB")
+            _img_areas = scan_image_for_keywords(_base_img)
+            _ha = [a for a in _img_areas if a.get("priority", 5) <= HA_PRIORITY_MAX]
+            if _ha:
+                out = sign_image_auto(data, sig_img, _ha[0], width_pct, v_offset)
+                detail = f"OCR: [{_ha[0]['keyword']}] → ký bên dưới"
+            else:
+                out = sign_image_file(data, name, sig_img, img_position, width_pct, img_margin)
+                detail = "Ghép chữ ký (vị trí thủ công)"
             out_name = f"da_ky_{Path(name).stem}.png"
         elif ext in (".xlsx", ".xls"):
             out, xl_info = sign_excel_file(data, sig_img, img_position)
@@ -769,7 +861,18 @@ with tab_single:
 
                 if mode == "🤖 Tự động tìm vị trí":
                     if not is_pdf:
-                        st.warning("Tự động chỉ hỗ trợ PDF. Dùng thủ công cho ảnh.")
+                        if st.button("🔍 Quét ảnh tìm vị trí ký (OCR)", use_container_width=True, key="s_scan"):
+                            with st.spinner("Đang OCR..."):
+                                try:
+                                    _base_scan = Image.open(io.BytesIO(doc_bytes)).convert("RGB")
+                                    areas = scan_image_for_keywords(_base_scan)
+                                except Exception as _ex:
+                                    areas = []
+                                    st.error(f"OCR lỗi: {_ex}")
+                            st.session_state.sig_areas = areas
+                            st.session_state.selected_area_idx = 0
+                            if not areas:
+                                st.warning("Không tìm thấy từ khóa (cần cài Tesseract). Dùng thủ công.")
                     else:
                         if st.button("🔍 Quét tài liệu tìm vị trí ký", use_container_width=True, key="s_scan"):
                             with st.spinner("Đang quét..."):
@@ -778,26 +881,30 @@ with tab_single:
                             st.session_state.selected_area_idx = 0
                             if not areas:
                                 st.warning("Không tìm thấy từ khóa nào. Thử thủ công.")
-                        areas = st.session_state.sig_areas
-                        if areas:
-                            st.success(f"Tìm thấy **{len(areas)}** vị trí")
+                    areas = st.session_state.sig_areas
+                    if areas:
+                        st.success(f"Tìm thấy **{len(areas)}** vị trí")
+                        if is_pdf:
                             labels = [f"{a['label']}  (dòng {int(a['pt'][1])} pt)" for a in areas]
-                            idx = st.radio("Chọn vị trí đặt chữ ký", range(len(labels)),
-                                          format_func=lambda i: labels[i],
-                                          index=min(st.session_state.selected_area_idx, len(areas)-1),
-                                          key="s_area")
-                            st.session_state.selected_area_idx = idx
-                            chosen_area = areas[idx]
-                            hint = "bên dưới" if chosen_area["place"] == "below" else "bên trên"
-                            kw_default_offset = chosen_area.get("v_offset")
-                            if kw_default_offset is not None:
-                                st.caption(f"Chữ ký sẽ đặt **{hint}** — khoảng cách mặc định: **{int(kw_default_offset)} điểm**")
-                            else:
-                                st.caption(f"Chữ ký sẽ đặt **{hint}** dòng chữ này.")
-                            default_slider = int(kw_default_offset) if kw_default_offset is not None else 4
-                            v_offset = st.slider("Điều chỉnh khoảng cách (điểm PDF)", -30, 120,
-                                                default_slider, key="s_vo",
-                                                help="Dương = dịch ra xa | Âm = dịch vào gần")
+                        else:
+                            labels = [f"{a['label']}  (y={int(a['px'][1])} px)" for a in areas]
+                        idx = st.radio("Chọn vị trí đặt chữ ký", range(len(labels)),
+                                      format_func=lambda i: labels[i],
+                                      index=min(st.session_state.selected_area_idx, len(areas)-1),
+                                      key="s_area")
+                        st.session_state.selected_area_idx = idx
+                        chosen_area = areas[idx]
+                        hint = "bên dưới" if chosen_area["place"] == "below" else "bên trên"
+                        kw_default_offset = chosen_area.get("v_offset")
+                        unit = "px" if not is_pdf else "điểm PDF"
+                        if kw_default_offset is not None:
+                            st.caption(f"Chữ ký sẽ đặt **{hint}** — khoảng cách mặc định: **{int(kw_default_offset)} {unit}**")
+                        else:
+                            st.caption(f"Chữ ký sẽ đặt **{hint}** dòng chữ này.")
+                        default_slider = int(kw_default_offset) if kw_default_offset is not None else 4
+                        v_offset = st.slider(f"Điều chỉnh khoảng cách ({unit})", -30, 120,
+                                            default_slider, key="s_vo",
+                                            help="Dương = dịch ra xa | Âm = dịch vào gần")
                 else:
                     if not is_pdf:
                         st.markdown("**📍 Di chuyển chữ ký tự do**")
@@ -822,7 +929,7 @@ with tab_single:
                 can_export = True
                 if is_pdf and not selected_pages:
                     st.warning("Chưa chọn trang."); can_export = False
-                if mode == "🤖 Tự động tìm vị trí" and is_pdf and not chosen_area:
+                if mode == "🤖 Tự động tìm vị trí" and not chosen_area:
                     st.info("Quét và chọn vị trí trước."); can_export = False
 
                 if can_export and st.button("🖊 Xuất file đã ký", type="primary",
@@ -849,20 +956,27 @@ with tab_single:
                                         use_container_width=True)
                                     st.success(f"Đã ký {len(selected_pages)} trang.")
                             else:
-                                base = Image.open(io.BytesIO(doc_bytes)).convert("RGB")
-                                bw, bh = base.size
-                                sw = max(30, int(bw * width_pct / 100))
-                                sh = int(sig.height * sw / sig.width)
-                                if position == "__FREE__":
-                                    x, y = int(bw * x_pct / 100), int(bh * y_pct / 100)
+                                if mode == "🤖 Tự động tìm vị trí" and chosen_area:
+                                    out = sign_image_auto(doc_bytes, sig, chosen_area, width_pct, v_offset)
+                                    st.download_button("⬇️ Tải ảnh đã ký", data=out,
+                                        file_name=f"da_ky_{stem}.png", mime="image/png",
+                                        use_container_width=True)
+                                    st.success(f"Đã ký theo [{chosen_area['keyword']}].")
                                 else:
-                                    x, y = _manual_xy(bw, bh, sw, sh, position, margin)
-                                result = overlay_sig(base, sig, x, y, sw)
-                                buf = io.BytesIO(); result.save(buf, "PNG")
-                                st.download_button("⬇️ Tải ảnh đã ký", data=buf.getvalue(),
-                                    file_name=f"da_ky_{stem}.png", mime="image/png",
-                                    use_container_width=True)
-                                st.success("Xong.")
+                                    base = Image.open(io.BytesIO(doc_bytes)).convert("RGB")
+                                    bw, bh = base.size
+                                    sw = max(30, int(bw * width_pct / 100))
+                                    sh = int(sig.height * sw / sig.width)
+                                    if position == "__FREE__":
+                                        x, y = int(bw * x_pct / 100), int(bh * y_pct / 100)
+                                    else:
+                                        x, y = _manual_xy(bw, bh, sw, sh, position, margin)
+                                    result = overlay_sig(base, sig, x, y, sw)
+                                    buf = io.BytesIO(); result.save(buf, "PNG")
+                                    st.download_button("⬇️ Tải ảnh đã ký", data=buf.getvalue(),
+                                        file_name=f"da_ky_{stem}.png", mime="image/png",
+                                        use_container_width=True)
+                                    st.success("Xong.")
                         except Exception as e:
                             st.error(f"Lỗi: {e}")
 
@@ -875,8 +989,8 @@ with tab_single:
                     bw, bh = base_img.size
                     sw_px = max(30, int(bw * width_pct / 100))
                     sh_px = int(sig.height * sw_px / sig.width)
-                    if mode == "🤖 Tự động tìm vị trí" and chosen_area and is_pdf:
-                        v_off_px = v_offset * PT_TO_PX
+                    if mode == "🤖 Tự động tìm vị trí" and chosen_area:
+                        v_off_px = v_offset if not is_pdf else v_offset * PT_TO_PX
                         x_px, y_px = _sig_xy_px(chosen_area, sh_px, v_off_px)
                         preview = overlay_sig(base_img, sig, x_px, y_px, sw_px,
                                              highlight_px=chosen_area["px"])
@@ -890,14 +1004,14 @@ with tab_single:
                             x_px, y_px = _manual_xy(bw, bh, sw_px, sh_px, position, margin)
                         preview = overlay_sig(base_img, sig, x_px, y_px, sw_px)
                         st.image(preview, use_container_width=True)
-                        if mode == "🤖 Tự động tìm vị trí" and is_pdf:
+                        if mode == "🤖 Tự động tìm vị trí":
                             areas = st.session_state.sig_areas
                             if areas:
                                 ha_areas = [a for a in areas if a.get("priority", 5) <= HA_PRIORITY_MAX]
-                                if not ha_areas:
+                                if not ha_areas and is_pdf:
                                     st.warning("Không có từ khóa Hoàng An → chữ ký sẽ đặt ở **vùng trống cuối trang, căn giữa**.")
                             else:
-                                st.info("Nhấn **Quét tài liệu** để tìm vị trí tự động.")
+                                st.info("Nhấn **Quét** để tìm vị trí tự động.")
                 except Exception as e:
                     st.error(f"Lỗi xem trước: {e}")
 
