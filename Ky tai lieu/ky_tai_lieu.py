@@ -119,7 +119,23 @@ def load_bytes_from_path(path_str: str):
 
 # ── File/Folder browser mini (vì Streamlit không mở được dialog hệ điều hành) ─
 
-DEFAULT_BROWSE_ROOT = "H:\\"  # ổ Drive đã mount sẵn trên Windows
+import sys, os
+def _detect_browse_root():
+    """Tự nhận diện OS → đường dẫn gốc mặc định cho folder browser."""
+    if sys.platform == "win32":
+        # Windows: ổ Google Drive đã mount
+        for d in ["H:\\", "G:\\", "D:\\", "C:\\"]:
+            if os.path.isdir(d):
+                return d
+        return "C:\\"
+    else:
+        # Android (Termux) / Linux
+        for d in ["/sdcard", "/storage/emulated/0", os.path.expanduser("~")]:
+            if os.path.isdir(d):
+                return d
+        return os.path.expanduser("~")
+
+DEFAULT_BROWSE_ROOT = _detect_browse_root()
 
 def _browse_set(key, value):
     """Callback set session_state[key] = value — chạy TRƯỚC khi widget được khởi tạo lại,
@@ -164,7 +180,7 @@ def folder_browser(key_prefix: str, target_text_key: str,
                       disabled=(cur.parent == cur),
                       on_click=_browse_set, args=(cur_key, str(cur.parent)))
         with nav_cols[1]:
-            st.button("🏠 Về H:\\", key=f"{key_prefix}_home", use_container_width=True,
+            st.button("🏠 Về gốc", key=f"{key_prefix}_home", use_container_width=True,
                       on_click=_browse_set, args=(cur_key, DEFAULT_BROWSE_ROOT))
         with nav_cols[2]:
             st.button("✅ Chọn thư mục này", key=f"{key_prefix}_pick",
@@ -1164,43 +1180,46 @@ with tab_batch:
     col_b1, col_b2 = st.columns([1,1], gap="large")
 
     with col_b1:
-        # ── Nguồn file (gọn) ─────────────────────────────────────────────
-        folder_input = st.text_input(
-            "📂 Thư mục chứa file cần ký",
-            placeholder=r"Ví dụ: H:\Don hang - KHSX\ĐH XN 12.06",
-            key="b_folder")
-        folder_browser("b_folder_browse", "b_folder")
-
-        _col_scan, _col_rec = st.columns([3,2])
-        with _col_scan:
-            _do_scan = st.button("🔎 Quét thư mục", use_container_width=True, key="b_scan_folder")
-        with _col_rec:
-            recursive = st.checkbox("Gồm thư mục con", key="b_rec")
+        # ── Upload file (ưu tiên — dùng được cả PC lẫn điện thoại) ───
+        uploaded_many = st.file_uploader(
+            "📂 Chọn file cần ký (PDF, ảnh, Excel, Word)",
+            type=["pdf","png","jpg","jpeg","xlsx","xls","docx"],
+            accept_multiple_files=True, key="b_upload")
 
         files_data = []
 
-        if _do_scan:
-            _raw = folder_input.strip().strip('"').strip("'")
-            if not _raw:
-                _raw = st.session_state.get("_browse_cur_b_folder_browse", "")
-            p = Path(_raw) if _raw else Path(".")
-            if not p.exists() or not p.is_dir():
-                st.error(f"Thư mục không tồn tại: `{p}`")
-            else:
-                loaded = scan_folder_files(p, recursive=recursive)
-                if not loaded:
-                    st.warning("Không tìm thấy file nào trong thư mục.")
-                else:
-                    st.session_state.batch_files = loaded
-                    st.session_state.batch_source_folder = str(p)
+        if uploaded_many:
+            files_data = [(f.name, f.read()) for f in uploaded_many]
+            st.session_state.batch_files = []
 
-        with st.expander("📤 Hoặc upload file thủ công"):
-            uploaded_many = st.file_uploader(
-                "Chọn nhiều file", type=["pdf","png","jpg","jpeg","xlsx","xls","docx"],
-                accept_multiple_files=True, key="b_upload", label_visibility="collapsed")
-            if uploaded_many:
-                files_data = [(f.name, f.read()) for f in uploaded_many]
-                st.session_state.batch_files = []
+        # ── Hoặc quét thư mục (PC — ổ đĩa/Drive đã mount) ───────────
+        with st.expander("🗂️ Hoặc quét thư mục trên máy tính"):
+            folder_input = st.text_input(
+                "Đường dẫn thư mục",
+                placeholder=r"Ví dụ: H:\Don hang - KHSX\ĐH XN 12.06",
+                key="b_folder")
+            folder_browser("b_folder_browse", "b_folder")
+
+            _col_scan, _col_rec = st.columns([3,2])
+            with _col_scan:
+                _do_scan = st.button("🔎 Quét", use_container_width=True, key="b_scan_folder")
+            with _col_rec:
+                recursive = st.checkbox("Gồm thư mục con", key="b_rec")
+
+            if _do_scan:
+                _raw = folder_input.strip().strip('"').strip("'")
+                if not _raw:
+                    _raw = st.session_state.get("_browse_cur_b_folder_browse", "")
+                p = Path(_raw) if _raw else Path(".")
+                if not p.exists() or not p.is_dir():
+                    st.error(f"Thư mục không tồn tại: `{p}`")
+                else:
+                    loaded = scan_folder_files(p, recursive=recursive)
+                    if not loaded:
+                        st.warning("Không tìm thấy file nào trong thư mục.")
+                    else:
+                        st.session_state.batch_files = loaded
+                        st.session_state.batch_source_folder = str(p)
 
         if not files_data and st.session_state.batch_files:
             files_data = st.session_state.batch_files
