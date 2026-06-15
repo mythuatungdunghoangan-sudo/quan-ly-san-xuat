@@ -4,12 +4,12 @@ from openpyxl.utils import get_column_letter
 from pathlib import Path
 
 _NHAN_C115_COLS  = ["STT", "Khách hàng", "Ngày đặt", "Ngày giao",
-                    "Tên sản phẩm", "Rộng", "Cao", "Số lượng nhãn", "Ghi chú"]
+                    "Tên sản phẩm", "Đơn giá", "Rộng", "Cao", "Số lượng nhãn", "Ghi chú"]
 _HOP_BASE_COLS   = ["STT", "Khách hàng", "Ngày đặt", "Ngày giao",
-                    "Tên sản phẩm", "Số lượng hộp", "Quy cách (SP/hộp)",
+                    "Tên sản phẩm", "Đơn giá", "Số lượng hộp", "Quy cách (SP/hộp)",
                     "Kích thước hộp (DxRxC)", "Chất liệu hộp", "In ấn", "Ghi chú"]
 _THUNG_BASE_COLS = ["STT", "Khách hàng", "Ngày đặt", "Ngày giao",
-                    "Tên sản phẩm", "Số lượng thùng", "Số hộp/thùng",
+                    "Tên sản phẩm", "Đơn giá", "Số lượng thùng", "Số hộp/thùng",
                     "Kích thước thùng (DxRxC)", "Trọng lượng (kg)", "Ghi chú"]
 
 TEMPLATE_COLUMNS = {
@@ -19,12 +19,12 @@ TEMPLATE_COLUMNS = {
     "Thùng carton": _THUNG_BASE_COLS,
     "Túi màng": [
         "STT", "Khách hàng", "Ngày đặt", "Ngày giao",
-        "Tên sản phẩm", "Số lượng", "Đơn vị",
+        "Tên sản phẩm", "Đơn giá", "Số lượng", "Đơn vị",
         "Kích thước túi (RxC)", "Chất liệu màng", "Độ dày (micron)", "Ghi chú",
     ],
     "Tổng hợp": [
         "STT", "Khách hàng", "Ngày đặt", "Ngày giao",
-        "Loại", "Tên sản phẩm", "Số lượng", "Đơn vị", "Ghi chú",
+        "Loại", "Tên sản phẩm", "Đơn giá", "Số lượng", "Đơn vị", "Ghi chú",
     ],
 }
 
@@ -43,6 +43,7 @@ _COLUMN_WIDTHS = {
     "Ngày đặt": 13,
     "Ngày giao": 13,
     "Tên sản phẩm": 30,
+    "Đơn giá": 14,
     "Số lượng nhãn": 16,
     "Số lượng hộp": 16,
     "Số lượng thùng": 16,
