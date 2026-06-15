@@ -75,6 +75,7 @@ for k, v in {
     "sig_active": None, "canvas_key": 0, "show_change_sig": False,
     "sig_areas": [], "selected_area_idx": 0, "last_file_id": None,
     "batch_results": [], "batch_files": [], "batch_orig_bytes": {},
+    "batch_source_folder": "",
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -99,6 +100,117 @@ def remove_white_bg(img: Image.Image, threshold=230) -> Image.Image:
 def save_chu_ky(img: Image.Image):
     img.save(CHU_KY_SAVE_PATH,"PNG"); st.session_state.sig_active = img
 
+# ── Tải file từ đường dẫn (vd ổ Drive đã mount: H:\... hoặc /storage/...) ─────
+
+def load_bytes_from_path(path_str: str):
+    """Đọc bytes từ đường dẫn local/đường dẫn ổ Drive đã mount.
+    Trả về (bytes, filename) hoặc (None, lỗi)."""
+    if not path_str or not path_str.strip():
+        return None, None
+    p = Path(path_str.strip().strip('"').strip("'"))
+    if not p.exists():
+        return None, f"Không tìm thấy đường dẫn: `{p}`"
+    if p.is_dir():
+        return None, f"Đây là thư mục, không phải file: `{p}`"
+    try:
+        return p.read_bytes(), p.name
+    except Exception as e:
+        return None, f"Lỗi đọc file: {e}"
+
+# ── File/Folder browser mini (vì Streamlit không mở được dialog hệ điều hành) ─
+
+DEFAULT_BROWSE_ROOT = "H:\\"  # ổ Drive đã mount sẵn trên Windows
+
+def _browse_set(key, value):
+    """Callback set session_state[key] = value — chạy TRƯỚC khi widget được khởi tạo lại,
+    nên không gây lỗi 'cannot be modified after widget instantiated'."""
+    st.session_state[key] = value
+
+def folder_browser(key_prefix: str, target_text_key: str,
+                    pick_files: bool = False, file_exts: tuple = ()):
+    """Hiển thị 1 cây thư mục đơn giản trong expander.
+    - key_prefix: tiền tố cho session_state key (duy nhất theo từng ô).
+    - target_text_key: key của st.text_input cần được điền đường dẫn đã chọn.
+      QUAN TRỌNG: gọi folder_browser() SAU khi đã st.text_input(key=target_text_key)
+      trong cùng lần render — việc cập nhật session_state[target_text_key] được thực
+      hiện qua on_click callback (chạy trước rerun) nên không lỗi.
+    - pick_files: True nếu cũng cho chọn file (không chỉ thư mục).
+    - file_exts: tuple đuôi file hiển thị khi pick_files=True (vd (".pdf",)).
+    """
+    cur_key = f"_browse_cur_{key_prefix}"
+    if cur_key not in st.session_state:
+        # Bắt đầu từ giá trị hiện có trong ô đích (nếu là thư mục hợp lệ), hoặc ổ mặc định
+        _existing = st.session_state.get(target_text_key, "")
+        _p = Path(_existing.strip().strip('"').strip("'")) if _existing else None
+        if _p and _p.is_dir():
+            st.session_state[cur_key] = str(_p)
+        elif _p and _p.exists() and _p.parent.is_dir():
+            st.session_state[cur_key] = str(_p.parent)
+        else:
+            st.session_state[cur_key] = DEFAULT_BROWSE_ROOT
+
+    with st.expander("📂 Duyệt thư mục", expanded=False):
+        cur = Path(st.session_state[cur_key])
+        if not cur.exists() or not cur.is_dir():
+            st.warning(f"Không truy cập được: `{cur}` — về ổ mặc định.")
+            cur = Path(DEFAULT_BROWSE_ROOT)
+            st.session_state[cur_key] = str(cur)
+
+        st.caption(f"Đang ở: `{cur}`")
+
+        nav_cols = st.columns([1,1,2])
+        with nav_cols[0]:
+            st.button("⬆️ Lên 1 cấp", key=f"{key_prefix}_up", use_container_width=True,
+                      disabled=(cur.parent == cur),
+                      on_click=_browse_set, args=(cur_key, str(cur.parent)))
+        with nav_cols[1]:
+            st.button("🏠 Về H:\\", key=f"{key_prefix}_home", use_container_width=True,
+                      on_click=_browse_set, args=(cur_key, DEFAULT_BROWSE_ROOT))
+        with nav_cols[2]:
+            st.button("✅ Chọn thư mục này", key=f"{key_prefix}_pick",
+                      use_container_width=True, type="primary",
+                      on_click=_browse_set, args=(target_text_key, str(cur)))
+
+        # Liệt kê thư mục con (và file nếu pick_files)
+        try:
+            entries = sorted(cur.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))
+        except Exception as e:
+            entries = []
+            st.error(f"Không đọc được thư mục: {e}")
+
+        shown = 0
+        for entry in entries:
+            if entry.name.startswith("."):
+                continue
+            if entry.is_dir():
+                st.button(f"📁 {entry.name}", key=f"{key_prefix}_d_{entry.name}",
+                          use_container_width=True,
+                          on_click=_browse_set, args=(cur_key, str(entry)))
+                shown += 1
+            elif pick_files:
+                if file_exts and entry.suffix.lower() not in file_exts:
+                    continue
+                st.button(f"📄 {entry.name}", key=f"{key_prefix}_f_{entry.name}",
+                          use_container_width=True,
+                          on_click=_browse_set, args=(target_text_key, str(entry)))
+                shown += 1
+        if shown == 0:
+            st.caption("(Trống)")
+
+def scan_folder_files(p: Path, recursive: bool = False):
+    """Quét PDF/ảnh/Excel/Word trong thư mục p. Trả về list (name, bytes)."""
+    exts = {"*.pdf","*.PDF","*.png","*.jpg","*.jpeg","*.xlsx","*.xls","*.docx"}
+    all_files = []
+    for ext in exts:
+        all_files += list(p.glob(f"**/{ext}" if recursive else ext))
+    all_files = sorted(set(all_files))
+    loaded = []
+    for fp in all_files:
+        try: loaded.append((fp.name, fp.read_bytes()))
+        except: pass
+    return loaded
+
+# ── Tự động load chữ ký đã lưu trước đó ──────────────────────────────────────
 if st.session_state.sig_active is None:
     st.session_state.sig_active = _find_chu_ky()
 
@@ -605,7 +717,7 @@ def create_zip(results: list) -> bytes:
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for r in results:
             if r.get("bytes"):
-                zf.writestr(r.get("out_name", f"da_ky_{r['name']}"), r["bytes"])
+                zf.writestr(r.get("out_name", r["name"]), r["bytes"])
     return buf.getvalue()
 
 def _ext(name: str) -> str:
@@ -633,7 +745,7 @@ def process_one_file(name: str, data: bytes, sig_img, kw, place,
                 detail = f"Ký {len(signed)} trang theo [{kw}]{offset_note}"
                 if skipped:
                     detail += f" | bỏ qua trang {skipped}"
-            out_name = f"da_ky_{name}"
+            out_name = name
         elif ext in (".png", ".jpg", ".jpeg"):
             _base_img = Image.open(io.BytesIO(data)).convert("RGB")
             _img_areas = scan_image_for_keywords(_base_img)
@@ -644,15 +756,15 @@ def process_one_file(name: str, data: bytes, sig_img, kw, place,
             else:
                 out = sign_image_file(data, name, sig_img, img_position, width_pct, img_margin)
                 detail = "Ghép chữ ký (vị trí thủ công)"
-            out_name = f"da_ky_{Path(name).stem}.png"
+            out_name = f"{Path(name).stem}.png"
         elif ext in (".xlsx", ".xls"):
             out, xl_info = sign_excel_file(data, sig_img, img_position)
             detail = xl_info
-            out_name = f"da_ky_{name}"
+            out_name = name
         elif ext == ".docx":
             out, word_info = sign_word_file(data, sig_img)
             detail = word_info
-            out_name = f"da_ky_{name}"
+            out_name = name
         else:
             return {"name": name, "status": "⏭️ Bỏ qua",
                     "detail": f"Định dạng {ext} chưa hỗ trợ", "bytes": None, "out_name": name}
@@ -679,8 +791,19 @@ with st.sidebar:
         new_sig = None
         with tab_up:
             sf = st.file_uploader("Ảnh chữ ký (PNG/JPG)", type=["png","jpg","jpeg"])
+            sig_path = st.text_input(
+                "...hoặc dán đường dẫn file (ổ Drive đã mount, vd H:\\...\\chu_ky.png)",
+                key="sig_path_input")
+            loaded = None
             if sf:
                 loaded = Image.open(sf)
+            elif sig_path:
+                _b, _name_or_err = load_bytes_from_path(sig_path)
+                if _b:
+                    loaded = Image.open(io.BytesIO(_b))
+                elif _name_or_err:
+                    st.error(_name_or_err)
+            if loaded:
                 rm = st.checkbox("Xóa nền trắng", value=True)
                 new_sig = remove_white_bg(loaded) if rm else loaded.convert("RGBA")
                 st.image(new_sig, use_container_width=True)
@@ -726,15 +849,34 @@ with tab_single:
     uploaded_doc = st.file_uploader(
         "Tải lên tài liệu cần ký (PDF, ảnh, Excel hoặc Word)",
         type=["pdf","png","jpg","jpeg","xlsx","xls","docx"], key="single_upload")
-    if not uploaded_doc:
-        st.info("Tải lên file để bắt đầu.")
-    else:
+    with st.expander("📂 Hoặc chọn file từ ổ đĩa / Google Drive"):
+        single_path = st.text_input(
+            "Đường dẫn file",
+            placeholder=r"Ví dụ: H:\Don hang...\file.pdf",
+            key="single_path_input")
+        folder_browser("single_path_browse", "single_path_input",
+                       pick_files=True, file_exts=(".pdf",".png",".jpg",".jpeg",".xlsx",".xls",".docx"))
+
+    doc_bytes = None
+    doc_name  = None
+    if uploaded_doc:
         doc_bytes = uploaded_doc.read()
-        _ext_s    = uploaded_doc.name.lower()
+        doc_name  = uploaded_doc.name
+    elif single_path:
+        _b, _name_or_err = load_bytes_from_path(single_path)
+        if _b:
+            doc_bytes, doc_name = _b, _name_or_err
+        elif _name_or_err:
+            st.error(_name_or_err)
+
+    if not doc_bytes:
+        st.info("Tải lên file hoặc dán đường dẫn để bắt đầu.")
+    else:
+        _ext_s    = doc_name.lower()
         is_pdf    = _ext_s.endswith(".pdf")
         is_excel  = _ext_s.endswith((".xlsx", ".xls"))
         is_word   = _ext_s.endswith(".docx")
-        file_id   = uploaded_doc.name + str(len(doc_bytes))
+        file_id   = doc_name + str(len(doc_bytes))
         if st.session_state.last_file_id != file_id:
             st.session_state.last_file_id  = file_id
             st.session_state.sig_areas     = []
@@ -772,14 +914,14 @@ with tab_single:
                 st.subheader("📥 Xuất file")
                 if st.button("🖊 Xuất Excel đã ký", type="primary",
                              use_container_width=True, key="s_xl_export"):
-                    stem = Path(uploaded_doc.name).stem
+                    stem = Path(doc_name).stem
                     with st.spinner("Đang xử lý..."):
                         try:
                             pos_arg = "Dưới phải" if xl_row else locals().get("xl_pos","Dưới phải")
                             out, xl_info = sign_excel_file(doc_bytes, sig, pos_arg)
                             st.download_button(
                                 "⬇️ Tải Excel đã ký", data=out,
-                                file_name=f"da_ky_{stem}.xlsx",
+                                file_name=f"{stem}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 use_container_width=True)
                             st.success(xl_info)
@@ -816,13 +958,13 @@ with tab_single:
                 st.subheader("📥 Xuất file")
                 if st.button("🖊 Xuất Word đã ký", type="primary",
                              use_container_width=True, key="s_word_export"):
-                    stem = Path(uploaded_doc.name).stem
+                    stem = Path(doc_name).stem
                     with st.spinner("Đang xử lý..."):
                         try:
                             out, word_info = sign_word_file(doc_bytes, sig, width_cm)
                             st.download_button(
                                 "⬇️ Tải Word đã ký", data=out,
-                                file_name=f"da_ky_{stem}.docx",
+                                file_name=f"{stem}.docx",
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                 use_container_width=True)
                             st.success(word_info)
@@ -934,7 +1076,7 @@ with tab_single:
 
                 if can_export and st.button("🖊 Xuất file đã ký", type="primary",
                                             use_container_width=True, key="s_export"):
-                    stem = Path(uploaded_doc.name).stem
+                    stem = Path(doc_name).stem
                     sig  = st.session_state.sig_active
                     with st.spinner("Đang xử lý..."):
                         try:
@@ -944,7 +1086,7 @@ with tab_single:
                                         doc_bytes, sig, selected_pages,
                                         chosen_area["keyword"], chosen_area["place"], width_pct, v_offset)
                                     st.download_button("⬇️ Tải PDF đã ký", data=out,
-                                        file_name=f"da_ky_{stem}.pdf", mime="application/pdf",
+                                        file_name=f"{stem}.pdf", mime="application/pdf",
                                         use_container_width=True)
                                     if signed: st.success(f"Đã ký {len(signed)} trang: {signed}")
                                     if skipped: st.warning(f"Không tìm thấy từ khóa ở trang {skipped}.")
@@ -952,14 +1094,14 @@ with tab_single:
                                     out = sign_pdf_manual(doc_bytes, sig, selected_pages,
                                                           position, width_pct, margin)
                                     st.download_button("⬇️ Tải PDF đã ký", data=out,
-                                        file_name=f"da_ky_{stem}.pdf", mime="application/pdf",
+                                        file_name=f"{stem}.pdf", mime="application/pdf",
                                         use_container_width=True)
                                     st.success(f"Đã ký {len(selected_pages)} trang.")
                             else:
                                 if mode == "🤖 Tự động tìm vị trí" and chosen_area:
                                     out = sign_image_auto(doc_bytes, sig, chosen_area, width_pct, v_offset)
                                     st.download_button("⬇️ Tải ảnh đã ký", data=out,
-                                        file_name=f"da_ky_{stem}.png", mime="image/png",
+                                        file_name=f"{stem}.png", mime="image/png",
                                         use_container_width=True)
                                     st.success(f"Đã ký theo [{chosen_area['keyword']}].")
                                 else:
@@ -974,7 +1116,7 @@ with tab_single:
                                     result = overlay_sig(base, sig, x, y, sw)
                                     buf = io.BytesIO(); result.save(buf, "PNG")
                                     st.download_button("⬇️ Tải ảnh đã ký", data=buf.getvalue(),
-                                        file_name=f"da_ky_{stem}.png", mime="image/png",
+                                        file_name=f"{stem}.png", mime="image/png",
                                         use_container_width=True)
                                     st.success("Xong.")
                         except Exception as e:
@@ -1019,94 +1161,88 @@ with tab_single:
 # TAB 2 — Ký hàng loạt
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_batch:
-    st.markdown("Ký nhiều file PDF cùng lúc — chọn file upload hoặc nhập đường dẫn thư mục.")
     col_b1, col_b2 = st.columns([1,1], gap="large")
 
     with col_b1:
-        # ── Nguồn file ───────────────────────────────────────────────────────
-        st.subheader("📂 Nguồn file")
-        source = st.radio("Chọn cách lấy file",
-                         ["📤 Upload nhiều file","🗂️ Nhập đường dẫn thư mục"],
-                         label_visibility="collapsed", key="b_source")
+        # ── Nguồn file (gọn) ─────────────────────────────────────────────
+        folder_input = st.text_input(
+            "📂 Thư mục chứa file cần ký",
+            placeholder=r"Ví dụ: H:\Don hang - KHSX\ĐH XN 12.06",
+            key="b_folder")
+        folder_browser("b_folder_browse", "b_folder")
 
-        files_data = []  # list of (name, bytes)
+        _col_scan, _col_rec = st.columns([3,2])
+        with _col_scan:
+            _do_scan = st.button("🔎 Quét thư mục", use_container_width=True, key="b_scan_folder")
+        with _col_rec:
+            recursive = st.checkbox("Gồm thư mục con", key="b_rec")
 
-        if source == "📤 Upload nhiều file":
+        files_data = []
+
+        if _do_scan:
+            _raw = folder_input.strip().strip('"').strip("'")
+            if not _raw:
+                _raw = st.session_state.get("_browse_cur_b_folder_browse", "")
+            p = Path(_raw) if _raw else Path(".")
+            if not p.exists() or not p.is_dir():
+                st.error(f"Thư mục không tồn tại: `{p}`")
+            else:
+                loaded = scan_folder_files(p, recursive=recursive)
+                if not loaded:
+                    st.warning("Không tìm thấy file nào trong thư mục.")
+                else:
+                    st.session_state.batch_files = loaded
+                    st.session_state.batch_source_folder = str(p)
+
+        with st.expander("📤 Hoặc upload file thủ công"):
             uploaded_many = st.file_uploader(
-                "Chọn nhiều file (PDF, ảnh, Excel, Word)",
-                type=["pdf","png","jpg","jpeg","xlsx","xls","docx"],
-                accept_multiple_files=True, key="b_upload")
+                "Chọn nhiều file", type=["pdf","png","jpg","jpeg","xlsx","xls","docx"],
+                accept_multiple_files=True, key="b_upload", label_visibility="collapsed")
             if uploaded_many:
                 files_data = [(f.name, f.read()) for f in uploaded_many]
-                st.success(f"Đã chọn {len(files_data)} file")
-                with st.expander("Danh sách file"):
-                    for name, data in files_data:
-                        st.text(f"  • {name}  ({len(data)//1024} KB)")
-        else:
-            folder_input = st.text_input(
-                "Đường dẫn thư mục",
-                placeholder=r"Ví dụ: D:\OneDrive\DonHang",
-                key="b_folder")
-            recursive = st.checkbox("Bao gồm thư mục con", value=False, key="b_rec")
+                st.session_state.batch_files = []
 
-            if st.button("🔎 Quét thư mục", use_container_width=True, key="b_scan_folder"):
-                p = Path(folder_input.strip().strip('"').strip("'"))
-                if not p.exists() or not p.is_dir():
-                    st.error(f"Thư mục không tồn tại: `{p}`\n\nKiểm tra lại đường dẫn.")
-                else:
-                    pattern = "**/*.pdf" if recursive else "*.pdf"
-                    exts = {"*.pdf","*.PDF","*.png","*.jpg","*.jpeg","*.xlsx","*.xls"}
-                    all_files = []
-                    for ext in exts:
-                        all_files += list(p.glob(f"**/{ext}" if recursive else ext))
-                    all_files = sorted(set(all_files))
-                    if not all_files:
-                        st.warning("Không tìm thấy file nào (PDF/ảnh/Excel) trong thư mục.")
-                    else:
-                        loaded = []
-                        for fp in all_files:
-                            try: loaded.append((fp.name, fp.read_bytes()))
-                            except: pass
-                        st.session_state.batch_files = loaded
-                        st.success(f"Tìm thấy {len(loaded)} file")
+        if not files_data and st.session_state.batch_files:
+            files_data = st.session_state.batch_files
 
-            if st.session_state.batch_files:
-                files_data = st.session_state.batch_files
-                with st.expander(f"Danh sách {len(files_data)} file"):
-                    for name, data in files_data:
-                        st.text(f"  • {name}  ({len(data)//1024} KB)")
+        if files_data:
+            st.success(f"✅ {len(files_data)} file sẵn sàng")
+            with st.expander(f"Danh sách {len(files_data)} file"):
+                for name, data in files_data:
+                    st.text(f"  • {name}  ({len(data)//1024} KB)")
 
-        st.divider()
+        # ── Cài đặt (mặc định đóng) ──────────────────────────────────────
+        with st.expander("⚙️ Cài đặt ký", expanded=False):
+            kw_mode = st.radio("Từ khóa tìm vị trí",
+                              ["🤖 Tự động", "🎯 Chọn cụ thể"],
+                              horizontal=True, key="b_kwmode")
 
-        # ── Cài đặt ký ───────────────────────────────────────────────────────
-        st.subheader("⚙️ Cài đặt ký hàng loạt")
+            specific_kw, specific_place = None, None
+            if kw_mode == "🎯 Chọn cụ thể":
+                chosen_label = st.selectbox("Từ khóa", _UNIQUE_LABELS, key="b_kwsel")
+                entry = _LABEL_TO_ENTRY[chosen_label]
+                specific_kw, specific_place = entry["kw"], entry["place"]
 
-        kw_mode = st.radio("Từ khóa tìm vị trí",
-                          ["🤖 Tự động (thử tất cả từ khóa)", "🎯 Chọn từ khóa cụ thể"],
-                          key="b_kwmode")
+            pages_mode = st.radio("Trang ký PDF",["Tất cả trang","Chỉ trang cuối"],
+                                 horizontal=True, key="b_pgmode")
 
-        specific_kw, specific_place = None, None
-        if kw_mode == "🎯 Chọn từ khóa cụ thể":
-            chosen_label = st.selectbox("Từ khóa", _UNIQUE_LABELS, key="b_kwsel")
-            entry = _LABEL_TO_ENTRY[chosen_label]
-            specific_kw, specific_place = entry["kw"], entry["place"]
-            place_hint = "bên dưới" if specific_place=="below" else "bên trên"
-            st.caption(f"Chữ ký sẽ đặt **{place_hint}** dòng chữ này.")
+            _cw1, _cw2 = st.columns(2)
+            with _cw1:
+                b_width = st.slider("Kích thước (%rộng)",5,60,22,key="b_w")
+            with _cw2:
+                b_voffset = st.slider("Khoảng cách (pt)",-30,80,4,key="b_vo")
 
-        pages_mode = st.radio("Trang ký PDF",["Tất cả trang","Chỉ trang cuối"],
-                             horizontal=True, key="b_pgmode")
-        b_width = st.slider("Kích thước chữ ký (% chiều rộng)",5,60,22,key="b_w")
-        b_voffset = st.slider("Khoảng cách từ từ khóa — PDF (điểm)",-30,80,4,key="b_vo")
-        b_img_pos = st.selectbox("Vị trí ký — ảnh/Excel",
-            ["Dưới phải","Dưới trái","Giữa dưới","Trên phải","Trên trái"],key="b_ipos")
-        b_margin = st.slider("Lề — ảnh (px)",5,150,35,key="b_mg")
+            _cw3, _cw4 = st.columns(2)
+            with _cw3:
+                b_img_pos = st.selectbox("Vị trí ảnh/Excel",
+                    ["Dưới phải","Dưới trái","Giữa dưới","Trên phải","Trên trái"],key="b_ipos")
+            with _cw4:
+                b_margin = st.slider("Lề ảnh (px)",5,150,35,key="b_mg")
 
-        st.divider()
-
-        # ── Bắt đầu ký ───────────────────────────────────────────────────────
+        # ── Bắt đầu ký ───────────────────────────────────────────────────
         ready = bool(files_data)
         if not ready:
-            st.info("Chọn file hoặc quét thư mục trước.")
+            st.caption("Quét thư mục hoặc upload file để bắt đầu.")
 
         if ready and st.button("▶️ Bắt đầu ký hàng loạt",type="primary",
                                use_container_width=True, key="b_go"):
@@ -1119,7 +1255,7 @@ with tab_batch:
                 status_box.text(f"Đang xử lý: {name}  ({i+1}/{len(files_data)})")
 
                 # Tìm keyword
-                if kw_mode == "🤖 Tự động (thử tất cả từ khóa)":
+                if kw_mode == "🤖 Tự động":
                     kw, place, kw_voff = auto_find_keyword_in_doc(data)
                 else:
                     kw, place, kw_voff = specific_kw, specific_place, None
@@ -1292,6 +1428,37 @@ with tab_batch:
                 st.caption("File ZIP tải về nằm trong thư mục **Downloads** của trình duyệt. "
                            "Giải nén để lấy từng file.")
 
+                # ── Lưu ZIP vào thư mục con (vd ổ Drive đã mount) ─────────────
+                st.divider()
+                st.markdown("**💾 Lưu ZIP vào thư mục con `da_ky_hang_loat`**")
+                _src_folder = st.session_state.get("batch_source_folder","")
+                _default_dest = str(Path(_src_folder) / "da_ky_hang_loat") if _src_folder else ""
+                dest_folder = st.text_input(
+                    "Đường dẫn thư mục lưu ZIP (sẽ tự tạo nếu chưa có)",
+                    value=_default_dest,
+                    placeholder=r"Ví dụ: H:\Don hang - KHSX\ĐH XN 12.06\da_ky_hang_loat",
+                    key="b_dest_folder")
+                folder_browser("b_dest_browse", "b_dest_folder")
+
+                if dest_folder.strip():
+                    st.caption(f"➡️ File sẽ được lưu tại: `{Path(dest_folder.strip()) / 'da_ky_hang_loat.zip'}`")
+                    confirm_save = st.checkbox(
+                        "Tôi xác nhận đường dẫn trên là đúng, lưu (ghi đè nếu đã có)",
+                        key="b_confirm_save")
+                    if st.button("✅ Lưu ZIP vào thư mục này", use_container_width=True,
+                                  type="primary", disabled=not confirm_save, key="b_save_zip"):
+                        try:
+                            dp = Path(dest_folder.strip().strip('"').strip("'"))
+                            dp.mkdir(parents=True, exist_ok=True)
+                            out_zip_path = dp / "da_ky_hang_loat.zip"
+                            out_zip_path.write_bytes(zip_bytes)
+                            st.success(f"Đã lưu: `{out_zip_path}`")
+                        except Exception as _ez:
+                            st.error(f"Lỗi khi lưu: {_ez}")
+                else:
+                    st.caption("Nhập đường dẫn thư mục ở trên để lưu ZIP trực tiếp "
+                               "(ổ Drive đã mount, ổ cứng, v.v.).")
+
                 with st.expander("Tải từng file riêng"):
                     for r in ok:
                         ext = _ext(r["name"])
@@ -1302,7 +1469,7 @@ with tab_batch:
                         st.download_button(
                             f"⬇️ {r.get('out_name', r['name'])}",
                             data=r["bytes"],
-                            file_name=r.get("out_name", f"da_ky_{r['name']}"),
+                            file_name=r.get("out_name", r["name"]),
                             mime=mime,
                             key=f"dl_{r['name']}",
                         )
