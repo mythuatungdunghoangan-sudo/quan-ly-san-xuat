@@ -8,6 +8,7 @@ Hỗ trợ hai chế độ:
 import io
 import re
 import json
+import base64
 import pandas as pd
 
 
@@ -83,6 +84,13 @@ _LETTERHEAD_NOISE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Dòng trông như header của bảng sản phẩm (Số lượng/Đơn giá/Thành tiền/STT/Mã hàng...)
+# — không phải tên công ty, dù không khớp _LETTERHEAD_NOISE_RE
+_TABLE_HEADER_LINE_RE = re.compile(
+    r'đơn\s*giá|thành\s*tiền|đơn\s*vị\s*tính|^\s*stt\b|mã\s*(?:hàng|sản\s*phẩm|sp)\b',
+    re.IGNORECASE,
+)
+
 
 def _extract_letterhead_company(text: str) -> str:
     """
@@ -98,7 +106,7 @@ def _extract_letterhead_company(text: str) -> str:
         r'(?:\n|,|;|địa\s*chỉ|điện\s*thoại|đt\s*:|mst\s*:|$)',
         header_zone, re.IGNORECASE,
     )
-    if m:
+    if m and not _TABLE_HEADER_LINE_RE.search(m.group(1)):
         return m.group(1).strip()
 
     # Fallback: dòng đầu tiên trông như tên tổ chức (không phải địa chỉ/SĐT)
@@ -107,6 +115,8 @@ def _extract_letterhead_company(text: str) -> str:
         if len(line) < 3 or len(line) > 80:
             continue
         if _LETTERHEAD_NOISE_RE.search(line):
+            continue
+        if _TABLE_HEADER_LINE_RE.search(line):
             continue
         if re.match(r'^\d', line):   # bắt đầu bằng số → địa chỉ/mã số
             continue
@@ -130,6 +140,9 @@ def parse_order_info(text: str) -> dict:
         candidate = val[:m_stop.start()].strip() if m_stop else val[:80].strip()
         # Bỏ qua nếu trông như ngày tháng hoặc số
         if re.match(r'^(?:ngày|ngay|\d)', candidate, re.IGNORECASE):
+            continue
+        # Bỏ qua nếu trông như header bảng sản phẩm (Số lượng/Đơn giá/Thành tiền...)
+        if _TABLE_HEADER_LINE_RE.search(candidate):
             continue
         # Bỏ qua nếu là tên đơn vị nhận in (Hoàng An)
         if candidate and not _is_own_company(candidate):
@@ -187,12 +200,26 @@ def map_columns(df: pd.DataFrame) -> pd.DataFrame:
         key = re.sub(r'\s+', ' ', str(col).lower().strip())
         if key in _COL_MAP:
             rename[col] = _COL_MAP[key]
-        else:
-            # Starts-with fallback: "tên mặt hàng [thông số]" → "tên mặt hàng"
-            for map_key, map_val in _COL_MAP.items():
-                if key.startswith(map_key) and len(map_key) >= 3:
-                    rename[col] = map_val
-                    break
+            continue
+        # Starts-with fallback: "tên mặt hàng [thông số]" → "tên mặt hàng"
+        matched = False
+        for map_key, map_val in _COL_MAP.items():
+            if key.startswith(map_key) and len(map_key) >= 3:
+                rename[col] = map_val
+                matched = True
+                break
+        if matched:
+            continue
+        # Contains fallback: header bị dính chữ lạ phía trước/sau do bảng PDF lệch cột
+        # (vd: "Điện thoại: Mã hàng", "0 Diễn giải") → vẫn nhận diện được "mã hàng"/"diễn giải"
+        # Ưu tiên map_key dài nhất để tránh khớp nhầm các từ ngắn như "mã"/"sl"
+        best_key, best_val = None, None
+        for map_key, map_val in _COL_MAP.items():
+            if len(map_key) >= 5 and re.search(r'(?<![a-zà-ỹ0-9])' + re.escape(map_key) + r'(?![a-zà-ỹ0-9])', key):
+                if best_key is None or len(map_key) > len(best_key):
+                    best_key, best_val = map_key, map_val
+        if best_val:
+            rename[col] = best_val
     return df.rename(columns=rename) if rename else df
 
 
@@ -221,14 +248,19 @@ def _find_header_row(df_raw: pd.DataFrame):
 # ---------------------------------------------------------------------------
 
 # Pattern: số x số (x số tuỳ chọn) (cm/mm tuỳ chọn) — nhận cả 2D và 3D
+# Hỗ trợ cả dạng có nhãn "(Kích thước: ...)" hoặc "(28 x 16) cm" (đơn vị ngoài ngoặc)
 _DIM_RE = re.compile(
+    r'\(?\s*(?:kích\s*thước\s*:?\s*)?'
     r'(\d+[\.,]?\d*\s*[xX×]\s*\d+[\.,]?\d*'
-    r'(?:\s*[xX×]\s*\d+[\.,]?\d*)?'
-    r'(?:\s*(?:cm|mm))?)'
+    r'(?:\s*[xX×]\s*\d+[\.,]?\d*)?)'
+    r'\s*(?:cm|mm)?\s*\)?'
+    r'\s*(?:cm|mm)?'
     r'(?:\s+KTPB)?',
     re.IGNORECASE,
 )
 _SUFFIX_RE = re.compile(r'\s*[-–]\s*$|\s+KTPB\s*$', re.IGNORECASE)
+_UNIT_SUFFIX_RE = re.compile(r'\s*(cm|mm)\s*$', re.IGNORECASE)
+_EMPTY_PAREN_RE = re.compile(r'[\(\{]\s*[\)\}]')
 
 SHEET_NAMES_ALL = [
     "Nhãn C115", "Nhãn Decan",
@@ -240,7 +272,7 @@ SHEET_NAMES_ALL = [
 
 # ── Từ khoá nhận dạng nhãn ───────────────────────────────────────────────────
 _NHAN_BASE_KW  = ["nhãn", "nhản", "nhan ", "label"]
-_NHAN_DECAN_KW = ["tem ", "decan", "nhãn decan", "nhan decan",
+_NHAN_DECAN_KW = ["tem ", "decan", "decal", "nhãn decan", "nhan decan",
                    "sticker", "bế ", "be dán", "be dan",
                    "nhãn dán", "nhan dan"]                       # Nhãn Decan
 _NHAN_C115_KW  = ["c115", "nhãn giấy", "nhan giay", "giấy c1"] # Nhãn C115
@@ -326,10 +358,12 @@ _DIM_SPLIT_RE = re.compile(r'\s*[xX×]\s*')
 
 
 def _split_rong_cao(dim_str: str) -> tuple[str, str]:
-    """'30x50mm' → ('30', '50mm'), '100x200x50' → ('100', '200')"""
+    """'30x50mm' → ('30', '50'), '100x200x50' → ('100', '200')"""
     parts = _DIM_SPLIT_RE.split(dim_str.strip())
     if len(parts) >= 2:
-        return parts[0].strip(), parts[1].strip()
+        rong = parts[0].strip()
+        cao = _UNIT_SUFFIX_RE.sub("", parts[1]).strip()
+        return rong, cao
     return dim_str, ""
 
 
@@ -339,7 +373,10 @@ def _split_name_size(name: str) -> tuple[str, str]:
         return name.strip(), ""
     dim = m.group(1).strip()
     clean = _DIM_RE.sub("", name).strip()
+    for _ in range(3):
+        clean = _EMPTY_PAREN_RE.sub("", clean)
     clean = _SUFFIX_RE.sub("", clean).strip()
+    clean = re.sub(r'\s+', ' ', clean).strip()
     return clean, dim
 
 
@@ -437,6 +474,19 @@ def _ok(data, order_info=None, warning=""):
 
 def _err(msg):
     return {"success": False, "data": [], "order_info": {}, "warning": "", "error": msg}
+
+
+def needs_claude_fallback(filename: str, result: dict) -> bool:
+    """
+    True nếu kết quả bóc tách bằng pdfplumber/OCR (không Claude) có chất lượng thấp
+    (lỗi hoặc chỉ ra được text thô, không có bảng) và nên thử lại bằng Claude API.
+    Excel không áp dụng — Claude không đọc Excel.
+    """
+    if filename.lower().endswith((".xlsx", ".xls")):
+        return False
+    if not result["success"]:
+        return True
+    return "hiển thị text thô" in result.get("warning", "")
 
 
 # ---------------------------------------------------------------------------
@@ -765,10 +815,11 @@ def _from_pdf_claude(uploaded_file, api_key: str) -> dict:
     except Exception:
         pass
 
-    if not full_text.strip():
-        return _err("PDF rỗng hoặc là ảnh scan — không thể đọc text. Hãy chuyển sang ảnh.")
-
     client = anthropic.Anthropic(api_key=api_key)
+
+    if not full_text.strip():
+        # Không có text → PDF là ảnh scan, dùng Claude Vision trên từng trang
+        return _from_pdf_scan_claude(pdf_bytes, client)
 
     # Chia chunk nếu text quá dài — tránh mất sản phẩm cuối file
     if len(full_text) <= _MAX_CHUNK:
@@ -798,46 +849,84 @@ def _from_pdf_claude(uploaded_file, api_key: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Claude API — Image (Vision)
+# Claude API — Vision (ảnh + PDF scan)
 # ---------------------------------------------------------------------------
 
-def _from_image_claude(uploaded_file, api_key: str) -> dict:
-    try:
-        import anthropic
-        import base64
-    except ImportError as e:
-        return _err(f"Thiếu thư viện: {e}")
-
-    raw = uploaded_file.read()
-    b64 = base64.standard_b64encode(raw).decode()
-
-    name = uploaded_file.name.lower()
+def _image_media_type(filename: str) -> str:
+    name = filename.lower()
     if name.endswith(".png"):
-        media_type = "image/png"
-    elif name.endswith(".webp"):
-        media_type = "image/webp"
-    else:
-        media_type = "image/jpeg"
+        return "image/png"
+    if name.endswith(".webp"):
+        return "image/webp"
+    return "image/jpeg"
 
-    client = anthropic.Anthropic(api_key=api_key)
+
+def _call_claude_vision(client, images: list[tuple[str, str]]) -> dict | None:
+    """images: list (base64_data, media_type) — có thể nhiều ảnh/trang trong 1 lần gọi."""
+    content = [
+        {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}}
+        for b64, media_type in images
+    ]
+    content.append({"type": "text", "text": _CLAUDE_PROMPT + "(ảnh đơn hàng)"})
     msg = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4096,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-                {"type": "text", "text": _CLAUDE_PROMPT + "(ảnh đơn hàng)"},
-            ],
-        }],
+        messages=[{"role": "user", "content": content}],
     )
-    parsed = _parse_claude_json(msg.content[0].text)
-    if not parsed:
-        return _err("Claude không trả về JSON hợp lệ")
+    return _parse_claude_json(msg.content[0].text)
 
+
+def _vision_result_to_dict(parsed: dict, warning: str = "") -> dict:
     products = _apply_claude_sheet_hints(parsed.get("products", []))
     records = _postprocess(products)
     oi = parsed.get("order_info", {})
     if _is_own_company(oi.get("customer", "")):
         oi["customer"] = ""
-    return _ok(records, oi)
+    return _ok(records, oi, warning=warning)
+
+
+def _from_image_claude(uploaded_file, api_key: str) -> dict:
+    try:
+        import anthropic
+    except ImportError as e:
+        return _err(f"Thiếu thư viện: {e}")
+
+    raw = uploaded_file.read()
+    b64 = base64.standard_b64encode(raw).decode()
+    media_type = _image_media_type(uploaded_file.name)
+
+    client = anthropic.Anthropic(api_key=api_key)
+    parsed = _call_claude_vision(client, [(b64, media_type)])
+    if not parsed:
+        return _err("Claude không trả về JSON hợp lệ")
+
+    return _vision_result_to_dict(parsed)
+
+
+def _from_pdf_scan_claude(pdf_bytes: bytes, client) -> dict:
+    """PDF không có text trích xuất được (ảnh scan) — render từng trang thành ảnh và dùng Claude Vision."""
+    try:
+        import fitz  # PyMuPDF
+    except ImportError as e:
+        return _err(f"Thiếu thư viện: {e}")
+
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as e:
+        return _err(f"Không mở được PDF: {e}")
+
+    mat = fitz.Matrix(150 / 72, 150 / 72)  # 150 DPI
+    images = []
+    for page in doc:
+        pix = page.get_pixmap(matrix=mat)
+        images.append((base64.standard_b64encode(pix.tobytes("png")).decode(), "image/png"))
+    doc.close()
+
+    if not images:
+        return _err("Không đọc được nội dung PDF (có thể là ảnh scan — hãy dùng Claude API key)")
+
+    parsed = _call_claude_vision(client, images)
+    if not parsed:
+        return _err("Claude không trả về JSON hợp lệ từ PDF scan")
+
+    return _vision_result_to_dict(parsed, warning="PDF scan — đã dùng Claude Vision để đọc nội dung")

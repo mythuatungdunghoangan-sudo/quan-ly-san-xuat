@@ -3,17 +3,13 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from pathlib import Path
 
-_NHAN_C115_COLS  = ["STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
-                    "Tên sản phẩm", "Rộng", "Cao", "Số lượng nhãn",
-                    "Mã sản phẩm", "Nội dung in", "Màu sắc", "Chất liệu", "Ghi chú"]
-_NHAN_BASE_COLS  = ["STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
-                    "Tên sản phẩm", "Mã sản phẩm", "Số lượng nhãn", "Kích thước nhãn",
-                    "Nội dung in", "Màu sắc", "Chất liệu", "Ghi chú"]
-_HOP_BASE_COLS   = ["STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
-                    "Tên sản phẩm", "Mã sản phẩm", "Số lượng hộp", "Quy cách (SP/hộp)",
+_NHAN_C115_COLS  = ["STT", "Khách hàng", "Ngày đặt", "Ngày giao",
+                    "Tên sản phẩm", "Rộng", "Cao", "Số lượng nhãn", "Ghi chú"]
+_HOP_BASE_COLS   = ["STT", "Khách hàng", "Ngày đặt", "Ngày giao",
+                    "Tên sản phẩm", "Số lượng hộp", "Quy cách (SP/hộp)",
                     "Kích thước hộp (DxRxC)", "Chất liệu hộp", "In ấn", "Ghi chú"]
-_THUNG_BASE_COLS = ["STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
-                    "Tên sản phẩm", "Mã sản phẩm", "Số lượng thùng", "Số hộp/thùng",
+_THUNG_BASE_COLS = ["STT", "Khách hàng", "Ngày đặt", "Ngày giao",
+                    "Tên sản phẩm", "Số lượng thùng", "Số hộp/thùng",
                     "Kích thước thùng (DxRxC)", "Trọng lượng (kg)", "Ghi chú"]
 
 TEMPLATE_COLUMNS = {
@@ -22,13 +18,13 @@ TEMPLATE_COLUMNS = {
     "Hộp":          _HOP_BASE_COLS,
     "Thùng carton": _THUNG_BASE_COLS,
     "Túi màng": [
-        "STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
-        "Tên sản phẩm", "Mã sản phẩm", "Số lượng", "Đơn vị",
+        "STT", "Khách hàng", "Ngày đặt", "Ngày giao",
+        "Tên sản phẩm", "Số lượng", "Đơn vị",
         "Kích thước túi (RxC)", "Chất liệu màng", "Độ dày (micron)", "Ghi chú",
     ],
     "Tổng hợp": [
-        "STT", "Mã đơn hàng", "Khách hàng", "Ngày đặt", "Ngày giao",
-        "Loại", "Tên sản phẩm", "Mã sản phẩm", "Số lượng", "Đơn vị", "Ghi chú",
+        "STT", "Khách hàng", "Ngày đặt", "Ngày giao",
+        "Loại", "Tên sản phẩm", "Số lượng", "Đơn vị", "Ghi chú",
     ],
 }
 
@@ -43,12 +39,10 @@ SHEET_COLORS = {
 
 _COLUMN_WIDTHS = {
     "STT": 6,
-    "Mã đơn hàng": 16,
     "Khách hàng": 26,
     "Ngày đặt": 13,
     "Ngày giao": 13,
     "Tên sản phẩm": 30,
-    "Mã sản phẩm": 16,
     "Số lượng nhãn": 16,
     "Số lượng hộp": 16,
     "Số lượng thùng": 16,
@@ -58,12 +52,8 @@ _COLUMN_WIDTHS = {
     "Độ dày (micron)": 16,
     "Rộng": 10,
     "Cao": 10,
-    "Kích thước nhãn": 20,
     "Kích thước hộp (DxRxC)": 24,
     "Kích thước thùng (DxRxC)": 24,
-    "Nội dung in": 26,
-    "Màu sắc": 13,
-    "Chất liệu": 16,
     "Chất liệu hộp": 16,
     "Quy cách (SP/hộp)": 18,
     "Số hộp/thùng": 14,

@@ -51,7 +51,6 @@ def _resolve_value(record: dict, target_header: str, order_info: dict) -> str:
 
     # Fallback: order_info fields
     _ORDER_FIELD_MAP = {
-        "Mã đơn hàng": "order_id",
         "Khách hàng":  "customer",
         "Ngày đặt":    "order_date",
         "Ngày giao":   "delivery_date",

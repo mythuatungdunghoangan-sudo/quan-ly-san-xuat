@@ -24,10 +24,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 from modules.template_creator import create_template, TEMPLATE_COLUMNS
-from modules.extractor import extract_from_file, SHEET_NAMES_ALL
+from modules.extractor import extract_from_file, needs_claude_fallback, SHEET_NAMES_ALL
 from modules.excel_handler import export_to_bytes
+from modules.classify_overrides import save_override
 
 TEMPLATE_PATH = Path("template/ke_hoach_san_xuat.xlsx")
+
+if "claude_manual_results" not in st.session_state:
+    st.session_state.claude_manual_results = {}
 
 # Màu badge mỗi loại
 _SHEET_BADGE = {
@@ -43,12 +47,20 @@ _SHEET_BADGE = {
 def ensure_template() -> Path:
     needs_create = not TEMPLATE_PATH.exists()
     if not needs_create:
-        # Tạo lại nếu template cũ thiếu sheet mới
+        # Tạo lại nếu template cũ thiếu sheet hoặc cột không khớp TEMPLATE_COLUMNS
         try:
             import openpyxl
             wb = openpyxl.load_workbook(TEMPLATE_PATH)
-            if not all(s in wb.sheetnames for s in TEMPLATE_COLUMNS):
-                needs_create = True
+            for sheet_name, columns in TEMPLATE_COLUMNS.items():
+                if sheet_name not in wb.sheetnames:
+                    needs_create = True
+                    break
+                headers = [c.value for c in wb[sheet_name][1]]
+                while headers and headers[-1] is None:
+                    headers.pop()
+                if headers != columns:
+                    needs_create = True
+                    break
         except Exception:
             needs_create = True
     if needs_create:
@@ -63,25 +75,17 @@ with st.sidebar:
     st.divider()
 
     st.subheader("🤖 Claude AI (tùy chọn)")
-    use_claude = st.toggle(
-        "Bật Claude AI",
-        value=False,
-        help="Tắt để dùng pdfplumber + OCR miễn phí, không cần key.",
+    claude_key = st.text_input(
+        "Anthropic API Key",
+        type="password",
+        placeholder="sk-ant-...",
+        help="Dự phòng cho từng file: chỉ dùng khi pdfplumber/OCR không đọc được file đó "
+             "(PDF scan, ảnh, không phát hiện bảng...).",
     )
-    if use_claude:
-        claude_key = st.text_input(
-            "Anthropic API Key",
-            type="password",
-            placeholder="sk-ant-...",
-            help="Gắn key để đọc PDF scan và ảnh thông minh hơn.",
-        )
-        if claude_key:
-            st.success("✅ Claude AI đang bật")
-        else:
-            st.warning("⚠️ Chưa nhập API key")
+    if claude_key:
+        st.success("✅ Claude AI dự phòng cho file lỗi")
     else:
-        claude_key = ""
-        st.info("Claude AI đang tắt — dùng pdfplumber + OCR")
+        st.info("Chưa nhập API key — chỉ dùng pdfplumber + OCR miễn phí")
 
     st.divider()
 
@@ -148,26 +152,72 @@ st.subheader("📊 Dữ liệu bóc tách & phân loại")
 all_items = []
 
 for uploaded_file in uploaded_files:
+    file_key = getattr(uploaded_file, "file_id", None) or f"{uploaded_file.name}_{uploaded_file.size}"
+
     with st.expander(f"📄 {uploaded_file.name}", expanded=True):
-        with st.spinner(f"Đang xử lý **{uploaded_file.name}**…"):
-            result = extract_from_file(
-                uploaded_file,
-                claude_api_key=claude_key if claude_key else None,
-            )
+        result = st.session_state.claude_manual_results.get(file_key)
+        from_manual_claude = result is not None
+
+        if result is None:
+            with st.spinner(f"Đang xử lý **{uploaded_file.name}**…"):
+                result = extract_from_file(uploaded_file, claude_api_key=None)
+                if claude_key and needs_claude_fallback(uploaded_file.name, result):
+                    uploaded_file.seek(0)
+                    retry = extract_from_file(uploaded_file, claude_api_key=claude_key)
+                    if retry["success"] and (retry["data"] or any((retry.get("order_info") or {}).values())):
+                        result = retry
+                        st.info("🤖 pdfplumber/OCR không đọc được file này — đã tự động dùng Claude AI")
+
+        if from_manual_claude:
+            st.info("🤖 Đã đọc lại file này bằng Claude AI")
 
         if not result["success"]:
             st.error(f"❌ {result['error']}")
-            continue
-        if result["warning"]:
+        elif result["warning"]:
             st.warning(result["warning"])
 
+        # File vẫn lỗi / chưa có bảng → cho nhập API key và đọc lại riêng file này bằng Claude AI
+        if needs_claude_fallback(uploaded_file.name, result):
+            with st.form(f"claude_form_{file_key}"):
+                manual_key = st.text_input(
+                    "Anthropic API Key cho file này",
+                    type="password",
+                    value=claude_key,
+                    placeholder="sk-ant-...",
+                    help="Chỉ dùng để đọc lại riêng file này bằng Claude AI.",
+                )
+                run_claude = st.form_submit_button("🤖 Đọc lại bằng Claude AI")
+            if run_claude:
+                if not manual_key:
+                    st.warning("Vui lòng nhập API key")
+                else:
+                    uploaded_file.seek(0)
+                    with st.spinner(f"Đang đọc **{uploaded_file.name}** bằng Claude AI…"):
+                        retry = extract_from_file(uploaded_file, claude_api_key=manual_key)
+                    st.session_state.claude_manual_results[file_key] = retry
+                    for _f in ("customer", "order_date", "delivery_date"):
+                        st.session_state.pop(f"{_f}__{file_key}", None)
+                    st.rerun()
+
+        if not result["success"]:
+            continue
+
         info = result.get("order_info") or {}
-        if any(info.values()):
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Mã đơn hàng", info.get("order_id") or "—")
-            c2.metric("Khách hàng",  info.get("customer") or "—")
-            c3.metric("Ngày đặt",    info.get("order_date") or "—")
-            c4.metric("Ngày giao",   info.get("delivery_date") or "—")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Mã đơn hàng", info.get("order_id") or "—")
+        info["customer"] = c2.text_input(
+            "Khách hàng", value=info.get("customer", ""),
+            key=f"customer__{file_key}",
+            help="Sửa lại nếu bóc tách tự động sai hoặc thiếu tên khách hàng",
+        )
+        info["order_date"] = c3.text_input(
+            "Ngày đặt", value=info.get("order_date", ""),
+            key=f"order_date__{file_key}",
+        )
+        info["delivery_date"] = c4.text_input(
+            "Ngày giao", value=info.get("delivery_date", ""),
+            key=f"delivery_date__{file_key}",
+        )
 
         data = result["data"]
         if not data:
@@ -205,6 +255,15 @@ for uploaded_file in uploaded_files:
         st.caption(f"{len(df)} dòng đã phân loại → {badges}")
         st.caption("Cột **Loại** có thể sửa trực tiếp ↓")
 
+        # Lưu lại "Loại" do hệ thống tự phân loại (trước khi người dùng sửa tay)
+        # để so sánh sau khi data_editor trả về, dùng "Tên sản phẩm" làm khoá ghép.
+        auto_loai_by_product = {}
+        if "Loại" in df.columns and "Tên sản phẩm" in df.columns:
+            for _, _row in df.iterrows():
+                _name = str(_row.get("Tên sản phẩm", "")).strip()
+                if _name:
+                    auto_loai_by_product[_name] = str(_row.get("Loại", "")).strip()
+
         edited_df = st.data_editor(
             df,
             width="stretch",
@@ -226,6 +285,18 @@ for uploaded_file in uploaded_files:
             },
         )
 
+        # Nếu người dùng sửa tay cột "Loại" khác với phân loại tự động ban đầu
+        # → lưu lại để các lần phân loại sau tự nhớ (theo tên sản phẩm)
+        if "Loại" in edited_df.columns and "Tên sản phẩm" in edited_df.columns:
+            for _, _row in edited_df.iterrows():
+                _name = str(_row.get("Tên sản phẩm", "")).strip()
+                _new_loai = str(_row.get("Loại", "")).strip()
+                if not _name or not _new_loai:
+                    continue
+                _old_loai = auto_loai_by_product.get(_name)
+                if _old_loai is not None and _new_loai != _old_loai:
+                    save_override(_name, _new_loai)
+
         all_items.append({
             "file": uploaded_file.name,
             "df": edited_df,
@@ -245,7 +316,6 @@ st.subheader("🚀 Tổng hợp & Xuất file")
 grouped: dict[str, list[dict]] = defaultdict(list)
 
 _OI_FIELDS = {
-    "Mã đơn hàng": "order_id",
     "Khách hàng":  "customer",
     "Ngày đặt":    "order_date",
     "Ngày giao":   "delivery_date",
