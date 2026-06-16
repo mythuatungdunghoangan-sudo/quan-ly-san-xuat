@@ -128,6 +128,14 @@ def render_pdf_page(pdf_bytes: bytes, page_num: int) -> Image.Image:
     pix = doc[page_num].get_pixmap(matrix=fitz.Matrix(PT_TO_PX,PT_TO_PX), alpha=False)
     return Image.frombytes("RGB",[pix.width,pix.height],pix.samples)
 
+def render_pdf_page_hq(pdf_bytes: bytes, page_num: int, dpi: int = 200) -> Image.Image:
+    """Render độ phân giải cao hơn — dùng riêng cho AI đọc chữ rõ hơn."""
+    import fitz
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    ratio = dpi / 72
+    pix = doc[page_num].get_pixmap(matrix=fitz.Matrix(ratio, ratio), alpha=False)
+    return Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
 def scan_page_for_keywords(pdf_bytes: bytes, page_num: int) -> list:
     import fitz
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -379,8 +387,9 @@ def _get_anthropic_key():
     except Exception:
         return ""
 
-def ai_find_signature_position(img: Image.Image):
-    """Gọi Claude API (vision) để tìm vị trí đặt chữ ký trên ảnh trang tài liệu.
+def ai_find_signature_position(img: Image.Image, sig_img: Image.Image, width_pct: float = 22):
+    """Gọi Claude API (vision) để tìm KHUNG dòng chữ chứa từ khóa cần ký bên cạnh,
+    sau đó TỰ TÍNH vị trí đặt chữ ký (không để AI đoán trực tiếp vị trí — kém chính xác hơn).
     Trả về (dict{x_pct,y_pct,reason}, None) khi thành công, hoặc (None, thông_báo_lỗi)."""
     api_key = _get_anthropic_key()
     if not api_key:
@@ -390,23 +399,28 @@ def ai_find_signature_position(img: Image.Image):
     import base64, json, requests
 
     img_s = img.convert("RGB")
-    max_dim = 1500
+    max_dim = 2000
     if max(img_s.size) > max_dim:
         ratio = max_dim / max(img_s.size)
         img_s = img_s.resize((int(img_s.width * ratio), int(img_s.height * ratio)))
-    buf = io.BytesIO(); img_s.save(buf, "JPEG", quality=85)
+    buf = io.BytesIO(); img_s.save(buf, "JPEG", quality=92)
     b64 = base64.b64encode(buf.getvalue()).decode()
 
     kw_hint = ", ".join(f'"{e["kw"]}"' for e in SIGN_KEYWORDS[:15])
     prompt = (
         "Đây là ảnh 1 trang tài liệu/đơn hàng tiếng Việt cần ký tên. "
-        f"Tìm vị trí thích hợp nhất để đặt CHỮ KÝ — ưu tiên ngay DƯỚI hoặc CẠNH các dòng có "
-        f"từ khóa như: {kw_hint}, hoặc các cụm tương tự như 'Người mua hàng', "
-        "'Ký, ghi rõ họ tên', 'Đại diện bên', hoặc ô trống cuối trang nếu không có từ khóa rõ ràng. "
-        "Trả lời CHỈ một JSON object, không giải thích gì thêm, không markdown, đúng định dạng:\n"
-        '{"found": true, "x_pct": <số 0-100, % từ trái tới góc trên-trái nơi đặt chữ ký>, '
-        '"y_pct": <số 0-100, % từ trên xuống>, "reason": "<từ khóa/vị trí đã chọn, rất ngắn>"}\n'
-        'Nếu trang trắng/không rõ vị trí nào hợp lý thì trả {"found": false, "reason": "..."}'
+        f"Tìm DÒNG CHỮ (không phải vị trí ký) phù hợp nhất để đặt chữ ký ngay sát nó — "
+        f"ưu tiên các dòng chứa từ khóa: {kw_hint}, hoặc cụm tương tự như 'Người mua hàng', "
+        "'Ký, ghi rõ họ tên', 'Đại diện bên'. Nếu không thấy từ khóa nào, chọn dòng chữ hợp lý "
+        "nhất gần cuối trang (ví dụ dòng tên người/chức danh cuối văn bản).\n\n"
+        "Trả lời CHỈ một JSON object, không giải thích, không markdown, đúng định dạng:\n"
+        '{"found": true, "matched_text": "<nguyên văn dòng chữ đã chọn>", '
+        '"box_pct": [x0, y0, x1, y1], "place": "below"}\n'
+        "Trong đó box_pct là tọa độ % (0-100) của khung SÁT QUANH dòng chữ đó so với chiều "
+        "rộng/cao toàn ảnh (x0,y0 = góc trên-trái; x1,y1 = góc dưới-phải; x0<x1; y0<y1). "
+        "\"place\" là \"below\" nếu nên ký ngay DƯỚI dòng này (thường gặp nhất), hoặc \"above\" "
+        "nếu nên ký ngay TRÊN dòng này (hiếm khi dùng — chỉ khi dòng chữ đó nằm ở mép dưới trang).\n"
+        'Nếu trang không có dòng chữ nào hợp lý, trả {"found": false, "reason": "..."}'
     )
 
     try:
@@ -419,7 +433,7 @@ def ai_find_signature_position(img: Image.Image):
             },
             json={
                 "model": "claude-sonnet-4-6",
-                "max_tokens": 300,
+                "max_tokens": 400,
                 "messages": [{
                     "role": "user",
                     "content": [
@@ -438,10 +452,31 @@ def ai_find_signature_position(img: Image.Image):
         text = text.strip().replace("```json", "").replace("```", "").strip()
         parsed = json.loads(text)
         if not parsed.get("found"):
-            return None, f"AI không tìm thấy vị trí phù hợp ({parsed.get('reason','')})."
-        x_pct = max(0, min(95, float(parsed.get("x_pct", 50))))
-        y_pct = max(0, min(95, float(parsed.get("y_pct", 50))))
-        return {"x_pct": x_pct, "y_pct": y_pct, "reason": parsed.get("reason", "")}, None
+            return None, f"AI không tìm thấy dòng chữ phù hợp ({parsed.get('reason','')})."
+
+        box = parsed.get("box_pct")
+        if not box or len(box) != 4:
+            return None, "AI trả về box_pct không hợp lệ."
+        x0, y0, x1, y1 = [max(0, min(100, float(v))) for v in box]
+        place = parsed.get("place", "below")
+        if place not in ("below", "above"):
+            place = "below"
+
+        # Tự tính vị trí đặt chữ ký dựa trên khung dòng chữ (chính xác hơn để AI tự đoán)
+        page_ar = img.width / img.height           # tỉ lệ trang (cùng tỉ lệ với ảnh resize)
+        sig_ar  = sig_img.width / sig_img.height
+        gap_pct = 1.2                                # khoảng cách nhỏ với dòng chữ, % chiều cao trang
+        sig_h_pct = width_pct * page_ar / sig_ar     # chiều cao chữ ký quy theo % chiều cao trang
+
+        if place == "below":
+            x_pct, y_pct = x0, y1 + gap_pct
+        else:
+            x_pct, y_pct = x0, y0 - sig_h_pct - gap_pct
+
+        x_pct = max(0, min(95, x_pct))
+        y_pct = max(0, min(95, y_pct))
+        reason = parsed.get("matched_text", "")
+        return {"x_pct": x_pct, "y_pct": y_pct, "reason": reason}, None
     except json.JSONDecodeError:
         return None, "AI trả về định dạng không đọc được. Thử lại."
     except Exception as e:
@@ -1055,9 +1090,10 @@ with tab_single:
                         if st.button("🤖 Dùng AI tìm vị trí", use_container_width=True, key="s_ai_find"):
                             with st.spinner("Đang hỏi AI..."):
                                 try:
-                                    _ai_img = (render_pdf_page(doc_bytes, preview_page - 1) if is_pdf
+                                    _ai_img = (render_pdf_page_hq(doc_bytes, preview_page - 1) if is_pdf
                                               else Image.open(io.BytesIO(doc_bytes)).convert("RGB"))
-                                    _ai_res, _ai_err = ai_find_signature_position(_ai_img)
+                                    _ai_res, _ai_err = ai_find_signature_position(
+                                        _ai_img, st.session_state.sig_active, width_pct)
                                 except Exception as _ai_ex:
                                     _ai_res, _ai_err = None, str(_ai_ex)
                             if _ai_res:
@@ -1341,10 +1377,12 @@ with tab_batch:
                             with st.spinner("Đang hỏi AI..."):
                                 try:
                                     if ext_p == ".pdf":
-                                        _ai_img = render_pdf_page(_orig_b, _epg_preview - 1)
+                                        _ai_img = render_pdf_page_hq(_orig_b, _epg_preview - 1)
                                     else:
                                         _ai_img = Image.open(io.BytesIO(_orig_b)).convert("RGB")
-                                    _ai_res, _ai_err = ai_find_signature_position(_ai_img)
+                                    _ai_width = st.session_state.get("b_ew", 22)
+                                    _ai_res, _ai_err = ai_find_signature_position(
+                                        _ai_img, _sig_e, _ai_width)
                                 except Exception as _ai_ex:
                                     _ai_res, _ai_err = None, str(_ai_ex)
                             if _ai_res:
