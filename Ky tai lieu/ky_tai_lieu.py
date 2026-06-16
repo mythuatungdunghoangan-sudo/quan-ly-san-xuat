@@ -1024,6 +1024,10 @@ with col_b2:
                 with st.expander("✏️ Chỉnh vị trí chữ ký cho file này"):
                     _sig_e = st.session_state.sig_active
 
+                    _key_ok = bool(_get_anthropic_key())
+                    st.caption("🔑 AI Vision: " + ("✅ Đã cấu hình API key" if _key_ok
+                              else "❌ Chưa thấy API key (kiểm tra Secrets + Reboot app)"))
+
                     # ── 🤖 AI tìm vị trí (chạy TRƯỚC khi tạo slider để set session_state an toàn)
                     if ext_p == ".pdf":
                         _epg_preview = st.session_state.get("b_epg", get_total_pages(_orig_b))
