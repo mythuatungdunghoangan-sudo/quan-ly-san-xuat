@@ -74,8 +74,7 @@ for e in SIGN_KEYWORDS:
 for k, v in {
     "sig_active": None, "canvas_key": 0, "show_change_sig": False,
     "sig_areas": [], "selected_area_idx": 0, "last_file_id": None,
-    "batch_results": [], "batch_files": [], "batch_orig_bytes": {},
-    "batch_source_folder": "",
+    "batch_results": [], "batch_orig_bytes": {},
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -116,115 +115,6 @@ def load_bytes_from_path(path_str: str):
         return p.read_bytes(), p.name
     except Exception as e:
         return None, f"Lỗi đọc file: {e}"
-
-# ── File/Folder browser mini (vì Streamlit không mở được dialog hệ điều hành) ─
-
-import sys, os
-def _detect_browse_root():
-    """Tự nhận diện OS → đường dẫn gốc mặc định cho folder browser."""
-    if sys.platform == "win32":
-        # Windows: ổ Google Drive đã mount
-        for d in ["H:\\", "G:\\", "D:\\", "C:\\"]:
-            if os.path.isdir(d):
-                return d
-        return "C:\\"
-    else:
-        # Android (Termux) / Linux
-        for d in ["/sdcard", "/storage/emulated/0", os.path.expanduser("~")]:
-            if os.path.isdir(d):
-                return d
-        return os.path.expanduser("~")
-
-DEFAULT_BROWSE_ROOT = _detect_browse_root()
-
-def _browse_set(key, value):
-    """Callback set session_state[key] = value — chạy TRƯỚC khi widget được khởi tạo lại,
-    nên không gây lỗi 'cannot be modified after widget instantiated'."""
-    st.session_state[key] = value
-
-def folder_browser(key_prefix: str, target_text_key: str,
-                    pick_files: bool = False, file_exts: tuple = ()):
-    """Hiển thị 1 cây thư mục đơn giản trong expander.
-    - key_prefix: tiền tố cho session_state key (duy nhất theo từng ô).
-    - target_text_key: key của st.text_input cần được điền đường dẫn đã chọn.
-      QUAN TRỌNG: gọi folder_browser() SAU khi đã st.text_input(key=target_text_key)
-      trong cùng lần render — việc cập nhật session_state[target_text_key] được thực
-      hiện qua on_click callback (chạy trước rerun) nên không lỗi.
-    - pick_files: True nếu cũng cho chọn file (không chỉ thư mục).
-    - file_exts: tuple đuôi file hiển thị khi pick_files=True (vd (".pdf",)).
-    """
-    cur_key = f"_browse_cur_{key_prefix}"
-    if cur_key not in st.session_state:
-        # Bắt đầu từ giá trị hiện có trong ô đích (nếu là thư mục hợp lệ), hoặc ổ mặc định
-        _existing = st.session_state.get(target_text_key, "")
-        _p = Path(_existing.strip().strip('"').strip("'")) if _existing else None
-        if _p and _p.is_dir():
-            st.session_state[cur_key] = str(_p)
-        elif _p and _p.exists() and _p.parent.is_dir():
-            st.session_state[cur_key] = str(_p.parent)
-        else:
-            st.session_state[cur_key] = DEFAULT_BROWSE_ROOT
-
-    with st.expander("📂 Duyệt thư mục", expanded=False):
-        cur = Path(st.session_state[cur_key])
-        if not cur.exists() or not cur.is_dir():
-            st.warning(f"Không truy cập được: `{cur}` — về ổ mặc định.")
-            cur = Path(DEFAULT_BROWSE_ROOT)
-            st.session_state[cur_key] = str(cur)
-
-        st.caption(f"Đang ở: `{cur}`")
-
-        nav_cols = st.columns([1,1,2])
-        with nav_cols[0]:
-            st.button("⬆️ Lên 1 cấp", key=f"{key_prefix}_up", use_container_width=True,
-                      disabled=(cur.parent == cur),
-                      on_click=_browse_set, args=(cur_key, str(cur.parent)))
-        with nav_cols[1]:
-            st.button("🏠 Về gốc", key=f"{key_prefix}_home", use_container_width=True,
-                      on_click=_browse_set, args=(cur_key, DEFAULT_BROWSE_ROOT))
-        with nav_cols[2]:
-            st.button("✅ Chọn thư mục này", key=f"{key_prefix}_pick",
-                      use_container_width=True, type="primary",
-                      on_click=_browse_set, args=(target_text_key, str(cur)))
-
-        # Liệt kê thư mục con (và file nếu pick_files)
-        try:
-            entries = sorted(cur.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))
-        except Exception as e:
-            entries = []
-            st.error(f"Không đọc được thư mục: {e}")
-
-        shown = 0
-        for entry in entries:
-            if entry.name.startswith("."):
-                continue
-            if entry.is_dir():
-                st.button(f"📁 {entry.name}", key=f"{key_prefix}_d_{entry.name}",
-                          use_container_width=True,
-                          on_click=_browse_set, args=(cur_key, str(entry)))
-                shown += 1
-            elif pick_files:
-                if file_exts and entry.suffix.lower() not in file_exts:
-                    continue
-                st.button(f"📄 {entry.name}", key=f"{key_prefix}_f_{entry.name}",
-                          use_container_width=True,
-                          on_click=_browse_set, args=(target_text_key, str(entry)))
-                shown += 1
-        if shown == 0:
-            st.caption("(Trống)")
-
-def scan_folder_files(p: Path, recursive: bool = False):
-    """Quét PDF/ảnh/Excel/Word trong thư mục p. Trả về list (name, bytes)."""
-    exts = {"*.pdf","*.PDF","*.png","*.jpg","*.jpeg","*.xlsx","*.xls","*.docx"}
-    all_files = []
-    for ext in exts:
-        all_files += list(p.glob(f"**/{ext}" if recursive else ext))
-    all_files = sorted(set(all_files))
-    loaded = []
-    for fp in all_files:
-        try: loaded.append((fp.name, fp.read_bytes()))
-        except: pass
-    return loaded
 
 # ── Tự động load chữ ký đã lưu trước đó ──────────────────────────────────────
 if st.session_state.sig_active is None:
@@ -865,13 +755,11 @@ with tab_single:
     uploaded_doc = st.file_uploader(
         "Tải lên tài liệu cần ký (PDF, ảnh, Excel hoặc Word)",
         type=["pdf","png","jpg","jpeg","xlsx","xls","docx"], key="single_upload")
-    with st.expander("📂 Hoặc chọn file từ ổ đĩa / Google Drive"):
+    with st.expander("📂 Hoặc chọn file từ ổ đĩa"):
         single_path = st.text_input(
             "Đường dẫn file",
             placeholder=r"Ví dụ: H:\Don hang...\file.pdf",
             key="single_path_input")
-        folder_browser("single_path_browse", "single_path_input",
-                       pick_files=True, file_exts=(".pdf",".png",".jpg",".jpeg",".xlsx",".xls",".docx"))
 
     doc_bytes = None
     doc_name  = None
@@ -1180,49 +1068,15 @@ with tab_batch:
     col_b1, col_b2 = st.columns([1,1], gap="large")
 
     with col_b1:
-        # ── Upload file (ưu tiên — dùng được cả PC lẫn điện thoại) ───
+        # ── Chọn file ────────────────────────────────────────────────
         uploaded_many = st.file_uploader(
             "📂 Chọn file cần ký (PDF, ảnh, Excel, Word)",
             type=["pdf","png","jpg","jpeg","xlsx","xls","docx"],
             accept_multiple_files=True, key="b_upload")
 
         files_data = []
-
         if uploaded_many:
             files_data = [(f.name, f.read()) for f in uploaded_many]
-            st.session_state.batch_files = []
-
-        # ── Hoặc quét thư mục (PC — ổ đĩa/Drive đã mount) ───────────
-        with st.expander("🗂️ Hoặc quét thư mục trên máy tính"):
-            folder_input = st.text_input(
-                "Đường dẫn thư mục",
-                placeholder=r"Ví dụ: H:\Don hang - KHSX\ĐH XN 12.06",
-                key="b_folder")
-            folder_browser("b_folder_browse", "b_folder")
-
-            _col_scan, _col_rec = st.columns([3,2])
-            with _col_scan:
-                _do_scan = st.button("🔎 Quét", use_container_width=True, key="b_scan_folder")
-            with _col_rec:
-                recursive = st.checkbox("Gồm thư mục con", key="b_rec")
-
-            if _do_scan:
-                _raw = folder_input.strip().strip('"').strip("'")
-                if not _raw:
-                    _raw = st.session_state.get("_browse_cur_b_folder_browse", "")
-                p = Path(_raw) if _raw else Path(".")
-                if not p.exists() or not p.is_dir():
-                    st.error(f"Thư mục không tồn tại: `{p}`")
-                else:
-                    loaded = scan_folder_files(p, recursive=recursive)
-                    if not loaded:
-                        st.warning("Không tìm thấy file nào trong thư mục.")
-                    else:
-                        st.session_state.batch_files = loaded
-                        st.session_state.batch_source_folder = str(p)
-
-        if not files_data and st.session_state.batch_files:
-            files_data = st.session_state.batch_files
 
         if files_data:
             st.success(f"✅ {len(files_data)} file sẵn sàng")
@@ -1446,37 +1300,6 @@ with tab_batch:
                 )
                 st.caption("File ZIP tải về nằm trong thư mục **Downloads** của trình duyệt. "
                            "Giải nén để lấy từng file.")
-
-                # ── Lưu ZIP vào thư mục con (vd ổ Drive đã mount) ─────────────
-                st.divider()
-                st.markdown("**💾 Lưu ZIP vào thư mục con `da_ky_hang_loat`**")
-                _src_folder = st.session_state.get("batch_source_folder","")
-                _default_dest = str(Path(_src_folder) / "da_ky_hang_loat") if _src_folder else ""
-                dest_folder = st.text_input(
-                    "Đường dẫn thư mục lưu ZIP (sẽ tự tạo nếu chưa có)",
-                    value=_default_dest,
-                    placeholder=r"Ví dụ: H:\Don hang - KHSX\ĐH XN 12.06\da_ky_hang_loat",
-                    key="b_dest_folder")
-                folder_browser("b_dest_browse", "b_dest_folder")
-
-                if dest_folder.strip():
-                    st.caption(f"➡️ File sẽ được lưu tại: `{Path(dest_folder.strip()) / 'da_ky_hang_loat.zip'}`")
-                    confirm_save = st.checkbox(
-                        "Tôi xác nhận đường dẫn trên là đúng, lưu (ghi đè nếu đã có)",
-                        key="b_confirm_save")
-                    if st.button("✅ Lưu ZIP vào thư mục này", use_container_width=True,
-                                  type="primary", disabled=not confirm_save, key="b_save_zip"):
-                        try:
-                            dp = Path(dest_folder.strip().strip('"').strip("'"))
-                            dp.mkdir(parents=True, exist_ok=True)
-                            out_zip_path = dp / "da_ky_hang_loat.zip"
-                            out_zip_path.write_bytes(zip_bytes)
-                            st.success(f"Đã lưu: `{out_zip_path}`")
-                        except Exception as _ez:
-                            st.error(f"Lỗi khi lưu: {_ez}")
-                else:
-                    st.caption("Nhập đường dẫn thư mục ở trên để lưu ZIP trực tiếp "
-                               "(ổ Drive đã mount, ổ cứng, v.v.).")
 
                 with st.expander("Tải từng file riêng"):
                     for r in ok:
