@@ -52,6 +52,8 @@ def _load_keywords() -> list:
             {"kw": "CÔNG TY HOÀNG AN",      "label": "Công ty Hoàng An",       "place": "above", "priority": 1},
             {"kw": "XÁC NHẬN",             "label": "XÁC NHẬN",               "place": "below", "priority": 2},
             {"kw": "Xác nhận đơn đặt hàng","label": "Xác nhận đơn đặt hàng", "place": "below", "priority": 3},
+            {"kw": "Xác nhận của bên sản xuất","label": "Xác nhận bên SX",    "place": "below", "priority": 3},
+            {"kw": "Xác nhận của nhà sản xuất","label": "Xác nhận nhà SX",    "place": "below", "priority": 3},
             {"kw": "Nguyễn Minh Hoàng",    "label": "Nguyễn Minh Hoàng",     "place": "above", "priority": 4},
             {"kw": "(Ký, họ tên)",          "label": "(Ký, họ tên)",           "place": "below", "priority": 5},
             {"kw": "Tổng Giám đốc",         "label": "Tổng Giám đốc",          "place": "above", "priority": 6},
@@ -406,20 +408,24 @@ def ai_find_signature_position(img: Image.Image, sig_img: Image.Image, width_pct
     buf = io.BytesIO(); img_s.save(buf, "JPEG", quality=92)
     b64 = base64.b64encode(buf.getvalue()).decode()
 
-    kw_hint = ", ".join(f'"{e["kw"]}"' for e in SIGN_KEYWORDS[:15])
+    kw_hint = ", ".join(f'"{e["kw"]}"' for e in SIGN_KEYWORDS)
+    extra_kw = '"Xác nhận của bên sản xuất", "Xác nhận của nhà sản xuất", "Người mua hàng", "Ký, ghi rõ họ tên", "Đại diện bên"'
     prompt = (
         "Đây là ảnh 1 trang tài liệu/đơn hàng tiếng Việt cần ký tên. "
-        f"Tìm DÒNG CHỮ (không phải vị trí ký) phù hợp nhất để đặt chữ ký ngay sát nó — "
-        f"ưu tiên các dòng chứa từ khóa: {kw_hint}, hoặc cụm tương tự như 'Người mua hàng', "
-        "'Ký, ghi rõ họ tên', 'Đại diện bên'. Nếu không thấy từ khóa nào, chọn dòng chữ hợp lý "
-        "nhất gần cuối trang (ví dụ dòng tên người/chức danh cuối văn bản).\n\n"
+        f"Tìm DÒNG CHỮ phù hợp nhất để đặt chữ ký ngay sát nó.\n\n"
+        f"DANH SÁCH TỪ KHÓA ƯU TIÊN (theo thứ tự ưu tiên giảm dần):\n{kw_hint}\n\n"
+        f"TỪ KHÓA BỔ SUNG (cũng tìm nếu không thấy từ khóa trên):\n{extra_kw}\n\n"
+        "QUY TẮC:\n"
+        "1. Ưu tiên tìm CHÍNH XÁC các từ khóa trên trong trang\n"
+        "2. Nếu tìm thấy nhiều từ khóa, chọn từ khóa có THỨ TỰ ƯU TIÊN CAO NHẤT (đầu danh sách)\n"
+        "3. Nếu không tìm thấy từ khóa nào, chọn dòng chữ hợp lý nhất gần cuối trang "
+        "(ví dụ dòng tên người/chức danh/ô trống cuối văn bản)\n\n"
         "Trả lời CHỈ một JSON object, không giải thích, không markdown, đúng định dạng:\n"
         '{"found": true, "matched_text": "<nguyên văn dòng chữ đã chọn>", '
         '"box_pct": [x0, y0, x1, y1], "place": "below"}\n'
         "Trong đó box_pct là tọa độ % (0-100) của khung SÁT QUANH dòng chữ đó so với chiều "
         "rộng/cao toàn ảnh (x0,y0 = góc trên-trái; x1,y1 = góc dưới-phải; x0<x1; y0<y1). "
-        "\"place\" là \"below\" nếu nên ký ngay DƯỚI dòng này (thường gặp nhất), hoặc \"above\" "
-        "nếu nên ký ngay TRÊN dòng này (hiếm khi dùng — chỉ khi dòng chữ đó nằm ở mép dưới trang).\n"
+        "\"place\" là \"below\" nếu nên ký ngay DƯỚI dòng này, hoặc \"above\" nếu nên ký ngay TRÊN.\n"
         'Nếu trang không có dòng chữ nào hợp lý, trả {"found": false, "reason": "..."}'
     )
 
