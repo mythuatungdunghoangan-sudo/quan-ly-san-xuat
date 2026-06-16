@@ -371,6 +371,100 @@ def scan_image_for_keywords(img: Image.Image) -> list:
     found.sort(key=lambda a: (a.get('priority', 5), a['px'][1]))
     return found
 
+# ── AI Vision (Claude API) — tìm vị trí ký khi local scan không ra ──────────
+
+def _get_anthropic_key():
+    try:
+        return st.secrets.get("ANTHROPIC_API_KEY", "")
+    except Exception:
+        return ""
+
+def ai_find_signature_position(img: Image.Image):
+    """Gọi Claude API (vision) để tìm vị trí đặt chữ ký trên ảnh trang tài liệu.
+    Trả về (dict{x_pct,y_pct,reason}, None) khi thành công, hoặc (None, thông_báo_lỗi)."""
+    api_key = _get_anthropic_key()
+    if not api_key:
+        return None, ("Chưa cấu hình ANTHROPIC_API_KEY. Vào Streamlit Cloud → App → "
+                       "Settings → Secrets, thêm dòng:\nANTHROPIC_API_KEY = \"sk-ant-...\"")
+
+    import base64, json, requests
+
+    img_s = img.convert("RGB")
+    max_dim = 1500
+    if max(img_s.size) > max_dim:
+        ratio = max_dim / max(img_s.size)
+        img_s = img_s.resize((int(img_s.width * ratio), int(img_s.height * ratio)))
+    buf = io.BytesIO(); img_s.save(buf, "JPEG", quality=85)
+    b64 = base64.b64encode(buf.getvalue()).decode()
+
+    kw_hint = ", ".join(f'"{e["kw"]}"' for e in SIGN_KEYWORDS[:15])
+    prompt = (
+        "Đây là ảnh 1 trang tài liệu/đơn hàng tiếng Việt cần ký tên. "
+        f"Tìm vị trí thích hợp nhất để đặt CHỮ KÝ — ưu tiên ngay DƯỚI hoặc CẠNH các dòng có "
+        f"từ khóa như: {kw_hint}, hoặc các cụm tương tự như 'Người mua hàng', "
+        "'Ký, ghi rõ họ tên', 'Đại diện bên', hoặc ô trống cuối trang nếu không có từ khóa rõ ràng. "
+        "Trả lời CHỈ một JSON object, không giải thích gì thêm, không markdown, đúng định dạng:\n"
+        '{"found": true, "x_pct": <số 0-100, % từ trái tới góc trên-trái nơi đặt chữ ký>, '
+        '"y_pct": <số 0-100, % từ trên xuống>, "reason": "<từ khóa/vị trí đã chọn, rất ngắn>"}\n'
+        'Nếu trang trắng/không rõ vị trí nào hợp lý thì trả {"found": false, "reason": "..."}'
+    )
+
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 300,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64",
+                                                      "media_type": "image/jpeg", "data": b64}},
+                        {"type": "text", "text": prompt},
+                    ],
+                }],
+            },
+            timeout=40,
+        )
+        if resp.status_code != 200:
+            return None, f"Lỗi API ({resp.status_code}): {resp.text[:200]}"
+        data = resp.json()
+        text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+        text = text.strip().replace("```json", "").replace("```", "").strip()
+        parsed = json.loads(text)
+        if not parsed.get("found"):
+            return None, f"AI không tìm thấy vị trí phù hợp ({parsed.get('reason','')})."
+        x_pct = max(0, min(95, float(parsed.get("x_pct", 50))))
+        y_pct = max(0, min(95, float(parsed.get("y_pct", 50))))
+        return {"x_pct": x_pct, "y_pct": y_pct, "reason": parsed.get("reason", "")}, None
+    except json.JSONDecodeError:
+        return None, "AI trả về định dạng không đọc được. Thử lại."
+    except Exception as e:
+        return None, f"Lỗi gọi AI: {e}"
+
+def sign_pdf_at_xy_pct(pdf_bytes: bytes, sig_img, pages: list,
+                       x_pct: float, y_pct: float, width_pct: float) -> bytes:
+    """Ký PDF tại vị trí % tùy ý (dùng cho kết quả AI hoặc kéo thả tự do)."""
+    import fitz
+    buf = io.BytesIO(); sig_img.save(buf, "PNG"); sig_png = buf.getvalue()
+    ar = sig_img.width / sig_img.height
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    for i, page in enumerate(doc):
+        if (i + 1) not in pages:
+            continue
+        pw, ph = page.rect.width, page.rect.height
+        sw = pw * width_pct / 100; sh = sw / ar
+        x = pw * x_pct / 100; y = ph * y_pct / 100
+        x = max(0, min(x, pw - sw)); y = max(0, min(y, ph - sh))
+        page.insert_image(fitz.Rect(x, y, x + sw, y + sh), stream=sig_png)
+    out = io.BytesIO(); doc.save(out)
+    return out.getvalue()
+
 def sign_image_auto(img_bytes: bytes, sig_img, area: dict,
                     width_pct: float, v_offset: float) -> bytes:
     """Ký ảnh theo vị trí từ khóa OCR."""
@@ -952,20 +1046,34 @@ with tab_single:
                                             default_slider, key="s_vo",
                                             help="Dương = dịch ra xa | Âm = dịch vào gần")
                 else:
-                    if not is_pdf:
-                        st.markdown("**📍 Di chuyển chữ ký tự do**")
-                        img_pos_mode = st.radio("Kiểu đặt vị trí",
-                            ["🎯 Kéo thả tự do (X/Y)", "📌 Chọn góc cố định"],
-                            horizontal=True, key="s_img_posmode")
-                        if img_pos_mode == "🎯 Kéo thả tự do (X/Y)":
-                            x_pct = st.slider("↔ Vị trí ngang (% từ trái)", 0, 95, 65, key="s_xpct")
-                            y_pct = st.slider("↕ Vị trí dọc  (% từ trên)", 0, 95, 70, key="s_ypct")
-                            position = "__FREE__"
-                            margin = 0
-                        else:
-                            position = st.selectbox("Vị trí",
-                                ["Dưới phải","Dưới trái","Giữa dưới","Trên phải","Trên trái","Giữa trang"], key="s_pos")
-                            margin = st.slider("Khoảng cách lề", 5, 150, 35, key="s_mg")
+                    st.markdown("**📍 Di chuyển chữ ký tự do**")
+                    img_pos_mode = st.radio("Kiểu đặt vị trí",
+                        ["🎯 Kéo thả tự do (X/Y)", "📌 Chọn góc cố định"],
+                        horizontal=True, key="s_img_posmode")
+                    if img_pos_mode == "🎯 Kéo thả tự do (X/Y)":
+                        # 🤖 AI tìm vị trí — chạy TRƯỚC khi tạo slider để set session_state an toàn
+                        if st.button("🤖 Dùng AI tìm vị trí", use_container_width=True, key="s_ai_find"):
+                            with st.spinner("Đang hỏi AI..."):
+                                try:
+                                    _ai_img = (render_pdf_page(doc_bytes, preview_page - 1) if is_pdf
+                                              else Image.open(io.BytesIO(doc_bytes)).convert("RGB"))
+                                    _ai_res, _ai_err = ai_find_signature_position(_ai_img)
+                                except Exception as _ai_ex:
+                                    _ai_res, _ai_err = None, str(_ai_ex)
+                            if _ai_res:
+                                st.session_state["s_xpct"] = round(_ai_res["x_pct"])
+                                st.session_state["s_ypct"] = round(_ai_res["y_pct"])
+                                st.session_state["_s_ai_reason"] = _ai_res.get("reason", "")
+                            elif _ai_err:
+                                st.session_state["_s_ai_reason"] = None
+                                st.error(_ai_err)
+                        if st.session_state.get("_s_ai_reason"):
+                            st.success(f"🤖 AI đã định vị: {st.session_state['_s_ai_reason']}")
+
+                        x_pct = st.slider("↔ Vị trí ngang (% từ trái)", 0, 95, 65, key="s_xpct")
+                        y_pct = st.slider("↕ Vị trí dọc  (% từ trên)", 0, 95, 70, key="s_ypct")
+                        position = "__FREE__"
+                        margin = 0
                     else:
                         position = st.selectbox("Vị trí",
                             ["Dưới phải","Dưới trái","Giữa dưới","Trên phải","Trên trái","Giữa trang"], key="s_pos")
@@ -995,8 +1103,12 @@ with tab_single:
                                     if signed: st.success(f"Đã ký {len(signed)} trang: {signed}")
                                     if skipped: st.warning(f"Không tìm thấy từ khóa ở trang {skipped}.")
                                 else:
-                                    out = sign_pdf_manual(doc_bytes, sig, selected_pages,
-                                                          position, width_pct, margin)
+                                    if position == "__FREE__":
+                                        out = sign_pdf_at_xy_pct(doc_bytes, sig, selected_pages,
+                                                                 x_pct, y_pct, width_pct)
+                                    else:
+                                        out = sign_pdf_manual(doc_bytes, sig, selected_pages,
+                                                              position, width_pct, margin)
                                     st.download_button("⬇️ Tải PDF đã ký", data=out,
                                         file_name=f"{stem}.pdf", mime="application/pdf",
                                         use_container_width=True)
@@ -1044,7 +1156,7 @@ with tab_single:
                         st.caption("🟠 Khung cam = từ khóa tìm thấy  |  chữ ký đặt "
                                   + ("bên dưới" if chosen_area["place"] == "below" else "bên trên"))
                     else:
-                        if not is_pdf and position == "__FREE__":
+                        if position == "__FREE__":
                             x_px, y_px = int(bw * x_pct / 100), int(bh * y_pct / 100)
                         else:
                             x_px, y_px = _manual_xy(bw, bh, sw_px, sh_px, position, margin)
@@ -1221,6 +1333,30 @@ with tab_batch:
                 if _orig_b and ext_p in (".pdf", ".png", ".jpg", ".jpeg"):
                     with st.expander("✏️ Chỉnh vị trí chữ ký cho file này"):
                         _sig_e = st.session_state.sig_active
+
+                        # ── 🤖 AI tìm vị trí (chạy TRƯỚC khi tạo slider để set session_state an toàn)
+                        if ext_p == ".pdf":
+                            _epg_preview = st.session_state.get("b_epg", get_total_pages(_orig_b))
+                        if st.button("🤖 Dùng AI tìm vị trí", use_container_width=True, key="b_ai_find"):
+                            with st.spinner("Đang hỏi AI..."):
+                                try:
+                                    if ext_p == ".pdf":
+                                        _ai_img = render_pdf_page(_orig_b, _epg_preview - 1)
+                                    else:
+                                        _ai_img = Image.open(io.BytesIO(_orig_b)).convert("RGB")
+                                    _ai_res, _ai_err = ai_find_signature_position(_ai_img)
+                                except Exception as _ai_ex:
+                                    _ai_res, _ai_err = None, str(_ai_ex)
+                            if _ai_res:
+                                st.session_state["b_ex"] = round(_ai_res["x_pct"])
+                                st.session_state["b_ey"] = round(_ai_res["y_pct"])
+                                st.session_state["_b_ai_reason"] = _ai_res.get("reason", "")
+                            elif _ai_err:
+                                st.session_state["_b_ai_reason"] = None
+                                st.error(_ai_err)
+                        if st.session_state.get("_b_ai_reason"):
+                            st.success(f"🤖 AI đã định vị: {st.session_state['_b_ai_reason']}")
+
                         _ce1, _ce2 = st.columns(2)
                         with _ce1:
                             _ew = st.slider("Kích thước (% chiều rộng)", 5, 60, 22, key="b_ew")
@@ -1290,7 +1426,7 @@ with tab_batch:
 
                 # ── Tải về ───────────────────────────────────────────────────
                 st.divider()
-                # CSS làm nút tải nổi bật
+                # CSS làm nút/link tải nổi bật
                 st.markdown("""<style>
                     [data-testid="stDownloadButton"] button {
                         background-color: #22c55e !important;
@@ -1300,40 +1436,46 @@ with tab_batch:
                         border: none !important;
                         padding: 0.6em 1em !important;
                     }
-                    [data-testid="stDownloadButton"] button:hover {
-                        background-color: #16a34a !important;
+                    .dl-link {
+                        display: block; text-align: center; padding: 14px;
+                        background: #22c55e; color: white !important;
+                        border-radius: 8px; font-weight: bold; font-size: 1.1em;
+                        text-decoration: none; margin: 6px 0;
                     }
-                    [data-testid="stDownloadButton"] button:active {
-                        background-color: #15803d !important;
-                        transform: scale(0.97);
+                    .dl-link:active { background: #15803d; }
+                    .dl-link-small {
+                        display: inline-block; padding: 8px 16px;
+                        background: #3b82f6; color: white !important;
+                        border-radius: 6px; text-decoration: none;
+                        font-size: 0.9em; margin: 4px 0;
                     }
                 </style>""", unsafe_allow_html=True)
 
+                import base64
                 zip_bytes = create_zip(ok)
-                st.download_button(
-                    f"⬇️ Tải tất cả {len(ok)} file đã ký (ZIP)",
-                    data=zip_bytes,
-                    file_name="da_ky_hang_loat.zip",
-                    mime="application/zip",
-                    use_container_width=True,
-                )
+                _b64_zip = base64.b64encode(zip_bytes).decode()
+
+                # Link tải chính (hoạt động trên cả iOS PWA và PC)
+                st.markdown(
+                    f'<a class="dl-link" href="data:application/zip;base64,{_b64_zip}" '
+                    f'download="da_ky_hang_loat.zip">⬇️ Tải tất cả {len(ok)} file đã ký (ZIP)</a>',
+                    unsafe_allow_html=True)
+
                 st.info(
-                    "📱 **iPhone**: Sau khi bấm tải, mở app **Files** → "
-                    "**Browse** → **On My iPhone** → **Downloads** để tìm file.\n\n"
-                    "💻 **Máy tính**: File nằm trong thư mục **Downloads** của trình duyệt."
+                    "📱 **iPhone**: Bấm link trên → chọn **Tải về** hoặc **Mở bằng Files**.\n\n"
+                    "💻 **Máy tính**: File tự tải vào thư mục **Downloads**."
                 )
 
                 with st.expander("Tải từng file riêng"):
                     for r in ok:
                         ext = _ext(r["name"])
-                        mime = ("application/pdf" if ext == ".pdf" else
+                        _mime = ("application/pdf" if ext == ".pdf" else
                                 "image/png" if ext in (".png",".jpg",".jpeg") else
                                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if ext == ".docx" else
                                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                        st.download_button(
-                            f"⬇️ {r.get('out_name', r['name'])}",
-                            data=r["bytes"],
-                            file_name=r.get("out_name", r["name"]),
-                            mime=mime,
-                            key=f"dl_{r['name']}",
-                        )
+                        _fname = r.get("out_name", r["name"])
+                        _b64 = base64.b64encode(r["bytes"]).decode()
+                        st.markdown(
+                            f'<a class="dl-link-small" href="data:{_mime};base64,{_b64}" '
+                            f'download="{_fname}">⬇️ {_fname}</a>',
+                            unsafe_allow_html=True)
