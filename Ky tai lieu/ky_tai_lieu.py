@@ -1290,6 +1290,25 @@ with tab_batch:
 
                 # ── Tải về ───────────────────────────────────────────────────
                 st.divider()
+                # CSS làm nút tải nổi bật
+                st.markdown("""<style>
+                    [data-testid="stDownloadButton"] button {
+                        background-color: #22c55e !important;
+                        color: white !important;
+                        font-weight: bold !important;
+                        font-size: 1.1em !important;
+                        border: none !important;
+                        padding: 0.6em 1em !important;
+                    }
+                    [data-testid="stDownloadButton"] button:hover {
+                        background-color: #16a34a !important;
+                    }
+                    [data-testid="stDownloadButton"] button:active {
+                        background-color: #15803d !important;
+                        transform: scale(0.97);
+                    }
+                </style>""", unsafe_allow_html=True)
+
                 zip_bytes = create_zip(ok)
                 st.download_button(
                     f"⬇️ Tải tất cả {len(ok)} file đã ký (ZIP)",
@@ -1298,8 +1317,11 @@ with tab_batch:
                     mime="application/zip",
                     use_container_width=True,
                 )
-                st.caption("File ZIP tải về nằm trong thư mục **Downloads** của trình duyệt. "
-                           "Giải nén để lấy từng file.")
+                st.info(
+                    "📱 **iPhone**: Sau khi bấm tải, mở app **Files** → "
+                    "**Browse** → **On My iPhone** → **Downloads** để tìm file.\n\n"
+                    "💻 **Máy tính**: File nằm trong thư mục **Downloads** của trình duyệt."
+                )
 
                 with st.expander("Tải từng file riêng"):
                     for r in ok:
