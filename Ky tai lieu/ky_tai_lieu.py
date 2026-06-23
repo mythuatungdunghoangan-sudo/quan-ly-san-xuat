@@ -1,7 +1,7 @@
 """
 Ứng dụng ký tài liệu
-- Upload 1 hoặc nhiều file (PDF/ảnh/Excel/Word), tự động tìm vị trí ký theo từ khóa
-- Hỗ trợ AI Vision (Claude API) tìm vị trí khi không quét được, xuất ZIP
+- Ký một file: PDF/ảnh, tự động tìm vị trí hoặc chọn thủ công
+- Ký hàng loạt: nhiều file hoặc cả thư mục, xuất ZIP
 """
 
 import io, zipfile
@@ -52,8 +52,6 @@ def _load_keywords() -> list:
             {"kw": "CÔNG TY HOÀNG AN",      "label": "Công ty Hoàng An",       "place": "above", "priority": 1},
             {"kw": "XÁC NHẬN",             "label": "XÁC NHẬN",               "place": "below", "priority": 2},
             {"kw": "Xác nhận đơn đặt hàng","label": "Xác nhận đơn đặt hàng", "place": "below", "priority": 3},
-            {"kw": "Xác nhận của bên sản xuất","label": "Xác nhận bên SX",    "place": "below", "priority": 3},
-            {"kw": "Xác nhận của nhà sản xuất","label": "Xác nhận nhà SX",    "place": "below", "priority": 3},
             {"kw": "Nguyễn Minh Hoàng",    "label": "Nguyễn Minh Hoàng",     "place": "above", "priority": 4},
             {"kw": "(Ký, họ tên)",          "label": "(Ký, họ tên)",           "place": "below", "priority": 5},
             {"kw": "Tổng Giám đốc",         "label": "Tổng Giám đốc",          "place": "above", "priority": 6},
@@ -75,6 +73,7 @@ for e in SIGN_KEYWORDS:
 # ─── SESSION STATE ────────────────────────────────────────────────────────────
 for k, v in {
     "sig_active": None, "canvas_key": 0, "show_change_sig": False,
+    "sig_areas": [], "selected_area_idx": 0, "last_file_id": None,
     "batch_results": [], "batch_orig_bytes": {},
 }.items():
     if k not in st.session_state:
@@ -100,24 +99,6 @@ def remove_white_bg(img: Image.Image, threshold=230) -> Image.Image:
 def save_chu_ky(img: Image.Image):
     img.save(CHU_KY_SAVE_PATH,"PNG"); st.session_state.sig_active = img
 
-# ── Tải file từ đường dẫn (vd ổ Drive đã mount: H:\... hoặc /storage/...) ─────
-
-def load_bytes_from_path(path_str: str):
-    """Đọc bytes từ đường dẫn local/đường dẫn ổ Drive đã mount.
-    Trả về (bytes, filename) hoặc (None, lỗi)."""
-    if not path_str or not path_str.strip():
-        return None, None
-    p = Path(path_str.strip().strip('"').strip("'"))
-    if not p.exists():
-        return None, f"Không tìm thấy đường dẫn: `{p}`"
-    if p.is_dir():
-        return None, f"Đây là thư mục, không phải file: `{p}`"
-    try:
-        return p.read_bytes(), p.name
-    except Exception as e:
-        return None, f"Lỗi đọc file: {e}"
-
-# ── Tự động load chữ ký đã lưu trước đó ──────────────────────────────────────
 if st.session_state.sig_active is None:
     st.session_state.sig_active = _find_chu_ky()
 
@@ -128,14 +109,6 @@ def render_pdf_page(pdf_bytes: bytes, page_num: int) -> Image.Image:
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     pix = doc[page_num].get_pixmap(matrix=fitz.Matrix(PT_TO_PX,PT_TO_PX), alpha=False)
     return Image.frombytes("RGB",[pix.width,pix.height],pix.samples)
-
-def render_pdf_page_hq(pdf_bytes: bytes, page_num: int, dpi: int = 200) -> Image.Image:
-    """Render độ phân giải cao hơn — dùng riêng cho AI đọc chữ rõ hơn."""
-    import fitz
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    ratio = dpi / 72
-    pix = doc[page_num].get_pixmap(matrix=fitz.Matrix(ratio, ratio), alpha=False)
-    return Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
 def scan_page_for_keywords(pdf_bytes: bytes, page_num: int) -> list:
     import fitz
@@ -262,6 +235,22 @@ def overlay_sig(base: Image.Image, sig: Image.Image,
     result.paste(sig_r,(px,py),mask=sig_r)
     return result.convert("RGB")
 
+def sign_pdf_manual(pdf_bytes, sig_img, pages, position, width_pct, margin):
+    import fitz
+    buf=io.BytesIO(); sig_img.save(buf,"PNG"); sig_png=buf.getvalue()
+    ar=sig_img.width/sig_img.height
+    doc=fitz.open(stream=pdf_bytes,filetype="pdf")
+    for i,page in enumerate(doc):
+        if (i+1) not in pages: continue
+        pw,ph=page.rect.width,page.rect.height
+        sw=pw*width_pct/100; sh=sw/ar; m=float(margin)
+        pos={"Trên trái":(m,m),"Trên phải":(pw-sw-m,m),
+             "Dưới trái":(m,ph-sh-m),"Dưới phải":(pw-sw-m,ph-sh-m),
+             "Giữa trang":((pw-sw)/2,(ph-sh)/2),"Giữa dưới":((pw-sw)/2,ph-sh-m)}
+        x,y=pos.get(position,(pw-sw-m,ph-sh-m))
+        page.insert_image(fitz.Rect(x,y,x+sw,y+sh),stream=sig_png)
+    out=io.BytesIO(); doc.save(out); return out.getvalue()
+
 def sign_pdf_auto(pdf_bytes, sig_img, pages, keyword, place, width_pct, v_offset):
     import fitz
     buf=io.BytesIO(); sig_img.save(buf,"PNG"); sig_png=buf.getvalue()
@@ -284,101 +273,392 @@ def sign_pdf_auto(pdf_bytes, sig_img, pages, keyword, place, width_pct, v_offset
     out=io.BytesIO(); doc.save(out)
     return out.getvalue(), signed, skipped
 
+def sign_image_file(img_bytes: bytes, img_name: str, sig_img,
+                    position: str, width_pct: float, margin: int) -> bytes:
+    """Ghép chữ ký lên file ảnh, trả về PNG bytes."""
+    base = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    bw, bh = base.size
+    sw = max(30, int(bw * width_pct / 100))
+    sh = int(sig_img.height * sw / sig_img.width)
+    x, y = _manual_xy(bw, bh, sw, sh, position, margin)
+    result = overlay_sig(base, sig_img, x, y, sw)
+    buf = io.BytesIO()
+    result.save(buf, "PNG")
+    return buf.getvalue()
+
+def scan_image_for_keywords(img: Image.Image) -> list:
+    """OCR ảnh để tìm vị trí từ khóa. Trả về cùng format với scan_page_for_keywords."""
+    try:
+        import pytesseract
+    except ImportError:
+        return []
+    # Chỉ đường dẫn Tesseract + tessdata tiếng Việt nằm trong thư mục app
+    import sys, os
+    if sys.platform == "win32":
+        _tess = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        if os.path.exists(_tess):
+            pytesseract.pytesseract.tesseract_cmd = _tess
+    _local_tessdata = str(_APP_DIR / "tessdata")
+    if os.path.isdir(_local_tessdata):
+        os.environ["TESSDATA_PREFIX"] = _local_tessdata
+        lang_str = 'vie+eng'
+    else:
+        try:
+            langs = pytesseract.get_languages()
+            lang_str = 'vie+eng' if 'vie' in langs else 'eng'
+        except Exception:
+            lang_str = 'eng'
+    try:
+        data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT,
+                                          lang=lang_str, config='--psm 6')
+    except Exception:
+        return []
+    from collections import defaultdict
+    lines = defaultdict(lambda: {'texts': [], 'boxes': []})
+    for i in range(len(data['text'])):
+        if int(data['conf'][i]) < 0:
+            continue
+        key = (data['page_num'][i], data['block_num'][i],
+               data['par_num'][i],  data['line_num'][i])
+        t = data['text'][i].strip()
+        if t:
+            lines[key]['texts'].append(t)
+            lines[key]['boxes'].append((
+                data['left'][i], data['top'][i],
+                data['left'][i] + data['width'][i],
+                data['top'][i] + data['height'][i],
+            ))
+    found, seen = [], []
+    for key in sorted(lines.keys()):
+        ld = lines[key]
+        if not ld['texts']:
+            continue
+        line_norm = _strip_accents(' '.join(ld['texts']))
+        for entry in SIGN_KEYWORDS:
+            if _strip_accents(entry['kw']) in line_norm:
+                x0 = min(b[0] for b in ld['boxes'])
+                y0 = min(b[1] for b in ld['boxes'])
+                x1 = max(b[2] for b in ld['boxes'])
+                y1 = max(b[3] for b in ld['boxes'])
+                if any(abs(y0 - s) < 8 for s in seen):
+                    continue
+                seen.append(y0)
+                found.append({
+                    'keyword': entry['kw'], 'label': entry['label'],
+                    'place': entry['place'], 'priority': entry.get('priority', 5),
+                    'v_offset': entry.get('v_offset'),
+                    'px': (x0, y0, x1, y1), 'pt': (x0, y0, x1, y1),
+                })
+                break
+    found.sort(key=lambda a: (a.get('priority', 5), a['px'][1]))
+    return found
+
+def sign_image_auto(img_bytes: bytes, sig_img, area: dict,
+                    width_pct: float, v_offset: float) -> bytes:
+    """Ký ảnh theo vị trí từ khóa OCR."""
+    base = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    bw, bh = base.size
+    sw = max(30, int(bw * width_pct / 100))
+    sh = int(sig_img.height * sw / sig_img.width)
+    eff_v = area['v_offset'] if area.get('v_offset') is not None else v_offset
+    x_px, y_px = _sig_xy_px(area, sh, eff_v)
+    result = overlay_sig(base, sig_img, x_px, y_px, sw)
+    buf = io.BytesIO()
+    result.save(buf, "PNG")
+    return buf.getvalue()
+
+_SIGN_KW_XL = [
+    "công ty hoàng an", "cong ty hoang an",
+    "nguyễn minh hoàng", "nguyen minh hoang",
+    "bên sản xuất", "nhà sản xuất", "xác nhận nhà sản xuất",
+]
+
+def find_excel_sig_position(excel_bytes: bytes) -> tuple:
+    """Tìm row/col/colOff để ký ngay dưới keyword, căn giữa vùng merge.
+    Trả về (row_1based, col_0based, found_text, col_off_emu)."""
+    from openpyxl import load_workbook
+    try:
+        # load_workbook không save → không corrupt file
+        wb = load_workbook(io.BytesIO(excel_bytes), data_only=True)
+        ws = wb.active
+
+        target_row = target_col = None
+        target_text = ""
+        for row_cells in ws.iter_rows():
+            for cell in row_cells:
+                if not (cell.value and isinstance(cell.value, str)):
+                    continue
+                val = cell.value.strip()
+                for kw in _SIGN_KW_XL:
+                    if kw in val.lower():
+                        target_row  = cell.row      # 1-based
+                        target_col  = cell.column   # 1-based
+                        target_text = val[:50]
+                        break
+                if target_row:
+                    break
+            if target_row:
+                break
+
+        if not target_row:
+            wb.close()
+            return None, None, None, 0
+
+        # Tìm vùng merge chứa cell này
+        min_col, max_col = target_col, target_col
+        for merge in ws.merged_cells.ranges:
+            if (merge.min_row <= target_row <= merge.max_row and
+                    merge.min_col <= target_col <= merge.max_col):
+                min_col = merge.min_col
+                max_col = merge.max_col
+                break
+
+        # Tính tổng chiều rộng vùng merge → đặt chữ ký căn giữa
+        def _col_emu(col_idx):
+            from openpyxl.utils import get_column_letter
+            letter = get_column_letter(col_idx)
+            dim = ws.column_dimensions.get(letter)
+            px = int((dim.width if dim and dim.width else 8.43) * 7 + 5)
+            return px * 9525
+
+        total_w_emu = sum(_col_emu(c) for c in range(min_col, max_col + 1))
+        sig_w_emu   = 160 * 9525
+        col_off_emu = max(0, (total_w_emu - sig_w_emu) // 2)
+
+        wb.close()
+        # row 1-based (dòng ký = ngay dưới keyword), col 0-based
+        return target_row, min_col - 1, target_text, col_off_emu
+
+    except Exception:
+        pass
+    return None, None, None, 0
+
+
+def sign_excel_file(excel_bytes: bytes, sig_img, position: str,
+                    width_px: int = 160, height_px: int = 80) -> tuple:
+    """
+    Chèn chữ ký vào xlsx bằng zipfile trực tiếp.
+    - Tự tìm vị trí keyword (CÔNG TY HOÀNG AN, v.v.)
+    - oneCellAnchor + giữ đúng tỉ lệ ảnh → không méo
+    - Không dùng openpyxl save → không corrupt drawing cũ
+    Trả về (bytes, info_str).
+    """
+    import zipfile, re
+    from openpyxl import load_workbook
+
+    # ── Tìm vị trí ký trong file ──────────────────────────────────────────────
+    sig_row_0, sig_col_0, found_text, col_off_emu = find_excel_sig_position(excel_bytes)
+
+    if sig_row_0 is None:
+        # Fallback: dùng position tham số
+        try:
+            wb_ro = load_workbook(io.BytesIO(excel_bytes), read_only=True)
+            max_row = max((ws.max_row or 30 for ws in wb_ro.worksheets), default=30)
+            wb_ro.close()
+        except Exception:
+            max_row = 40
+        col_map = {"Dưới phải":7,"Trên phải":7,"Dưới trái":0,"Trên trái":0,
+                   "Giữa trang":3,"Giữa dưới":3}
+        row_map = {"Dưới phải":max_row,"Dưới trái":max_row,"Giữa dưới":max_row,
+                   "Trên phải":0,"Trên trái":0,"Giữa trang":max(0,max_row//2)}
+        sig_col_0   = col_map.get(position, 7)
+        sig_row_0   = row_map.get(position, max_row)
+        col_off_emu = 0
+        info = f"Không tìm thấy keyword → đặt theo vị trí {position}"
+    else:
+        info = f"Tìm thấy [{found_text}] → ký row {sig_row_0+1}, căn giữa (offset {col_off_emu//9525}px)"
+
+    # ── Chuẩn bị ảnh, giữ đúng tỉ lệ (oneCellAnchor) ─────────────────────────
+    sig_buf = io.BytesIO()
+    sig_img.convert("RGBA").save(sig_buf, "PNG")
+    sig_png = sig_buf.getvalue()
+    # EMU: dùng width cố định, tính height theo tỉ lệ ảnh
+    w_emu = width_px * 9525
+    h_emu = int(sig_img.height / sig_img.width * w_emu)
+
+    in_buf = io.BytesIO(excel_bytes)
+    out_buf = io.BytesIO()
+
+    with zipfile.ZipFile(in_buf, 'r') as zin:
+        all_names = zin.namelist()
+
+        # Tên ảnh mới tránh trùng
+        existing_imgs = [n for n in all_names if n.startswith('xl/media/image')]
+        new_idx = len(existing_imgs) + 1
+        new_img_path = f"xl/media/image{new_idx}.png"
+        while new_img_path in all_names:
+            new_idx += 1; new_img_path = f"xl/media/image{new_idx}.png"
+        new_img_base = new_img_path.split('/')[-1]
+
+        drw_path = next(
+            (n for n in all_names
+             if n.startswith('xl/drawings/drawing') and n.endswith('.xml')
+             and '_rels' not in n), None)
+        if drw_path is None:
+            return excel_bytes, "Không có drawing trong file"
+
+        drw_rels_path = f"xl/drawings/_rels/{drw_path.split('/')[-1]}.rels"
+        drw_xml  = zin.read(drw_path).decode('utf-8')
+        drw_rels = (zin.read(drw_rels_path).decode('utf-8') if drw_rels_path in all_names
+                    else '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                         '</Relationships>')
+
+        used_rids  = [int(x) for x in re.findall(r'Id="rId(\d+)"', drw_rels)]
+        new_rid    = f"rId{max(used_rids, default=0) + 1}"
+        used_ids   = [int(x) for x in re.findall(r'\bid="(\d+)"', drw_xml)]
+        new_pic_id = max(used_ids, default=1) + 1
+
+        # oneCellAnchor: ảnh kích thước cố định, không bị kéo dãn
+        anchor = (
+            f'<xdr:oneCellAnchor>'
+            f'<xdr:from>'
+            f'<xdr:col>{sig_col_0}</xdr:col><xdr:colOff>{col_off_emu}</xdr:colOff>'
+            f'<xdr:row>{sig_row_0}</xdr:row><xdr:rowOff>57150</xdr:rowOff>'
+            f'</xdr:from>'
+            f'<xdr:ext cx="{w_emu}" cy="{h_emu}"/>'
+            f'<xdr:pic><xdr:nvPicPr>'
+            f'<xdr:cNvPr id="{new_pic_id}" name="ChuKyHoangAn"/>'
+            f'<xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr>'
+            f'</xdr:nvPicPr><xdr:blipFill>'
+            f'<a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+            f' r:embed="{new_rid}"/>'
+            f'<a:stretch><a:fillRect/></a:stretch>'
+            f'</xdr:blipFill><xdr:spPr>'
+            f'<a:xfrm><a:off x="0" y="0"/><a:ext cx="{w_emu}" cy="{h_emu}"/></a:xfrm>'
+            f'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+            f'</xdr:spPr></xdr:pic><xdr:clientData/>'
+            f'</xdr:oneCellAnchor>'
+        )
+        new_drw_xml  = drw_xml.replace('</xdr:wsDr>', anchor + '</xdr:wsDr>')
+        new_rel      = (f'<Relationship Id="{new_rid}"'
+                        f' Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"'
+                        f' Target="../media/{new_img_base}"/>')
+        new_drw_rels = drw_rels.replace('</Relationships>', new_rel + '</Relationships>')
+
+        with zipfile.ZipFile(out_buf, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for name in all_names:
+                if name == drw_path:
+                    zout.writestr(name, new_drw_xml.encode('utf-8'))
+                elif name == drw_rels_path:
+                    zout.writestr(name, new_drw_rels.encode('utf-8'))
+                else:
+                    zout.writestr(name, zin.read(name))
+            zout.writestr(new_img_path, sig_png)
+
+    return out_buf.getvalue(), info
+
+def sign_word_file(docx_bytes: bytes, sig_img, width_cm: float = 4.0) -> tuple:
+    """Chèn chữ ký vào Word (.docx). Tìm keyword rồi thêm ảnh sau đó, hoặc cuối tài liệu."""
+    from docx import Document
+    from docx.shared import Cm
+    from docx.oxml import OxmlElement
+    from docx.text.paragraph import Paragraph as DocxParagraph
+
+    doc = Document(io.BytesIO(docx_bytes))
+
+    sig_buf = io.BytesIO()
+    sig_img.convert("RGB").save(sig_buf, "PNG")
+    sig_buf.seek(0)
+
+    target_para = None
+    found_kw = None
+
+    def _search(paras):
+        nonlocal target_para, found_kw
+        for para in paras:
+            t = para.text.lower()
+            for kw in _SIGN_KW_XL:
+                if kw in t:
+                    target_para = para; found_kw = kw; return True
+        return False
+
+    _search(doc.paragraphs)
+    if not target_para:
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if _search(cell.paragraphs): break
+                if target_para: break
+            if target_para: break
+
+    if target_para:
+        new_p = OxmlElement('w:p')
+        target_para._p.addnext(new_p)
+        new_para = DocxParagraph(new_p, target_para._parent)
+        run = new_para.add_run()
+        run.add_picture(sig_buf, width=Cm(width_cm))
+        info = f"Tìm thấy [{found_kw}] → ký ngay dưới"
+    else:
+        para = doc.add_paragraph()
+        run = para.add_run()
+        run.add_picture(sig_buf, width=Cm(width_cm))
+        info = "Không tìm thấy keyword → ký ở cuối tài liệu"
+
+    out_buf = io.BytesIO()
+    doc.save(out_buf)
+    return out_buf.getvalue(), info
+
 def create_zip(results: list) -> bytes:
     """Tạo ZIP từ danh sách kết quả ký hàng loạt."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for r in results:
             if r.get("bytes"):
-                zf.writestr(r.get("out_name", r["name"]), r["bytes"])
+                zf.writestr(r.get("out_name", f"da_ky_{r['name']}"), r["bytes"])
     return buf.getvalue()
 
 def _ext(name: str) -> str:
     return Path(name).suffix.lower()
 
-def convert_to_pdf(name: str, data: bytes) -> tuple:
-    """Chuyển file sang PDF bytes. Trả về (pdf_bytes, pdf_name, error_msg)."""
-    ext = _ext(name)
-    stem = Path(name).stem
-    pdf_name = stem + ".pdf"
-
-    if ext == ".pdf":
-        return data, name, None
-
-    # ── Ảnh → PDF bằng Pillow ─────────────────────────────────────────────────
-    if ext in (".png", ".jpg", ".jpeg"):
-        try:
-            img = Image.open(io.BytesIO(data)).convert("RGB")
-            buf = io.BytesIO()
-            img.save(buf, "PDF", resolution=150)
-            return buf.getvalue(), pdf_name, None
-        except Exception as e:
-            return None, pdf_name, f"Lỗi chuyển ảnh → PDF: {e}"
-
-    # ── Word / Excel → PDF bằng LibreOffice ───────────────────────────────────
-    if ext in (".docx", ".xlsx", ".xls"):
-        try:
-            import subprocess, tempfile, os
-            with tempfile.TemporaryDirectory() as tmp:
-                in_path = os.path.join(tmp, name)
-                with open(in_path, "wb") as f:
-                    f.write(data)
-                r = subprocess.run(
-                    ["libreoffice", "--headless", "--convert-to", "pdf",
-                     "--outdir", tmp, in_path],
-                    capture_output=True, timeout=90,
-                    env={**os.environ, "HOME": tmp}  # tránh lock profile LibreOffice
-                )
-                pdf_path = os.path.join(tmp, pdf_name)
-                if os.path.exists(pdf_path):
-                    with open(pdf_path, "rb") as f:
-                        return f.read(), pdf_name, None
-                err = r.stderr.decode("utf-8", errors="replace")[:300]
-                return None, pdf_name, f"LibreOffice không tạo được PDF: {err}"
-        except FileNotFoundError:
-            return None, pdf_name, ("LibreOffice chưa được cài. "
-                                     "Kiểm tra packages.txt có dòng 'libreoffice'.")
-        except Exception as e:
-            return None, pdf_name, f"Lỗi chuyển {ext} → PDF: {e}"
-
-    return None, pdf_name, f"Định dạng {ext} chưa hỗ trợ."
-
-
 def process_one_file(name: str, data: bytes, sig_img, kw, place,
                      pages_mode: str, width_pct: float, v_offset: float,
                      kw_v_offset=None,
                      img_position: str = "Dưới phải", img_margin: int = 35) -> dict:
-    """Chuyển file sang PDF → tìm từ khóa → ký → trả về dict kết quả."""
+    """Ký một file (PDF / ảnh / Excel). Trả về dict kết quả."""
+    ext = _ext(name)
     try:
-        # ── Bước 1: Chuyển sang PDF ───────────────────────────────────────────
-        pdf_bytes, pdf_name, err = convert_to_pdf(name, data)
-        if err:
-            return {"name": name, "status": "❌ Lỗi chuyển PDF",
-                    "detail": err, "bytes": None, "out_name": name}
-
-        # ── Bước 2: Ký PDF ────────────────────────────────────────────────────
-        total = get_total_pages(pdf_bytes)
-        pages = list(range(1, total + 1)) if pages_mode == "Tất cả trang" else [total]
-
-        if kw is None:
-            out, signed = sign_pdf_bottom_center(pdf_bytes, sig_img, pages, width_pct)
-            detail = f"Ký {len(signed)} trang (vùng trống cuối)"
+        if ext == ".pdf":
+            total = get_total_pages(data)
+            pages = list(range(1, total+1)) if pages_mode == "Tất cả trang" else [total]
+            if kw is None:
+                out, signed = sign_pdf_bottom_center(data, sig_img, pages, width_pct)
+                detail = f"Ký {len(signed)} trang (vùng trống cuối — không có từ khóa HA)"
+            else:
+                # Ưu tiên v_offset từ keyword (tu_khoa.txt), sau đó mới dùng slider
+                effective_offset = kw_v_offset if kw_v_offset is not None else v_offset
+                out, signed, skipped = sign_pdf_auto(data, sig_img, pages, kw, place,
+                                                      width_pct, effective_offset)
+                offset_note = f" [kc={int(effective_offset)}pt]" if kw_v_offset is not None else ""
+                detail = f"Ký {len(signed)} trang theo [{kw}]{offset_note}"
+                if skipped:
+                    detail += f" | bỏ qua trang {skipped}"
+            out_name = f"da_ky_{name}"
+        elif ext in (".png", ".jpg", ".jpeg"):
+            _base_img = Image.open(io.BytesIO(data)).convert("RGB")
+            _img_areas = scan_image_for_keywords(_base_img)
+            _ha = [a for a in _img_areas if a.get("priority", 5) <= HA_PRIORITY_MAX]
+            if _ha:
+                out = sign_image_auto(data, sig_img, _ha[0], width_pct, v_offset)
+                detail = f"OCR: [{_ha[0]['keyword']}] → ký bên dưới"
+            else:
+                out = sign_image_file(data, name, sig_img, img_position, width_pct, img_margin)
+                detail = "Ghép chữ ký (vị trí thủ công)"
+            out_name = f"da_ky_{Path(name).stem}.png"
+        elif ext in (".xlsx", ".xls"):
+            out, xl_info = sign_excel_file(data, sig_img, img_position)
+            detail = xl_info
+            out_name = f"da_ky_{name}"
+        elif ext == ".docx":
+            out, word_info = sign_word_file(data, sig_img)
+            detail = word_info
+            out_name = f"da_ky_{name}"
         else:
-            effective_offset = kw_v_offset if kw_v_offset is not None else v_offset
-            out, signed, skipped = sign_pdf_auto(pdf_bytes, sig_img, pages, kw, place,
-                                                  width_pct, effective_offset)
-            offset_note = f" [kc={int(effective_offset)}pt]" if kw_v_offset is not None else ""
-            detail = f"Ký {len(signed)} trang theo [{kw}]{offset_note}"
-            if skipped:
-                detail += f" | bỏ qua trang {skipped}"
-
-        ext_orig = _ext(name)
-        if ext_orig != ".pdf":
-            detail = f"→PDF + " + detail
+            return {"name": name, "status": "⏭️ Bỏ qua",
+                    "detail": f"Định dạng {ext} chưa hỗ trợ", "bytes": None, "out_name": name}
 
         return {"name": name, "status": "✅ OK", "detail": detail,
-                "bytes": out, "out_name": pdf_name}
-
+                "bytes": out, "out_name": out_name}
     except Exception as e:
         return {"name": name, "status": "❌ Lỗi", "detail": str(e),
                 "bytes": None, "out_name": name}
@@ -399,19 +679,8 @@ with st.sidebar:
         new_sig = None
         with tab_up:
             sf = st.file_uploader("Ảnh chữ ký (PNG/JPG)", type=["png","jpg","jpeg"])
-            sig_path = st.text_input(
-                "...hoặc dán đường dẫn file (ổ Drive đã mount, vd H:\\...\\chu_ky.png)",
-                key="sig_path_input")
-            loaded = None
             if sf:
                 loaded = Image.open(sf)
-            elif sig_path:
-                _b, _name_or_err = load_bytes_from_path(sig_path)
-                if _b:
-                    loaded = Image.open(io.BytesIO(_b))
-                elif _name_or_err:
-                    st.error(_name_or_err)
-            if loaded:
                 rm = st.checkbox("Xóa nền trắng", value=True)
                 new_sig = remove_white_bg(loaded) if rm else loaded.convert("RGBA")
                 st.image(new_sig, use_container_width=True)
@@ -448,60 +717,59 @@ if st.session_state.sig_active is None:
     st.info("Chưa có chữ ký — upload hoặc vẽ chữ ký ở thanh bên trái rồi lưu.")
     st.stop()
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — Ký hàng loạt
+# KÝ HÀNG LOẠT
 # ═══════════════════════════════════════════════════════════════════════════════
+st.markdown("Ký nhiều file cùng lúc — upload file PDF, ảnh, Excel hoặc Word.")
 col_b1, col_b2 = st.columns([1,1], gap="large")
 
 with col_b1:
-    # ── Chọn file ────────────────────────────────────────────────
+    # ── Nguồn file ───────────────────────────────────────────────────────
     uploaded_many = st.file_uploader(
         "📂 Chọn file cần ký (PDF, ảnh, Excel, Word)",
-        type=["pdf","png","jpg","jpeg","xlsx","xls","docx"],
+        type=["pdf","png","jpg","jpeg","xlsx","xls","docx","doc"],
         accept_multiple_files=True, key="b_upload")
 
     files_data = []
     if uploaded_many:
         files_data = [(f.name, f.read()) for f in uploaded_many]
-
-    if files_data:
         st.success(f"✅ {len(files_data)} file sẵn sàng")
         with st.expander(f"Danh sách {len(files_data)} file"):
             for name, data in files_data:
                 st.text(f"  • {name}  ({len(data)//1024} KB)")
 
-    # ── Cài đặt (mặc định đóng) ──────────────────────────────────────
-    with st.expander("⚙️ Cài đặt ký", expanded=False):
-        kw_mode = st.radio("Từ khóa tìm vị trí",
-                          ["🤖 Tự động", "🎯 Chọn cụ thể"],
-                          horizontal=True, key="b_kwmode")
+    st.divider()
 
-        specific_kw, specific_place = None, None
-        if kw_mode == "🎯 Chọn cụ thể":
-            chosen_label = st.selectbox("Từ khóa", _UNIQUE_LABELS, key="b_kwsel")
-            entry = _LABEL_TO_ENTRY[chosen_label]
-            specific_kw, specific_place = entry["kw"], entry["place"]
+    # ── Cài đặt ký ───────────────────────────────────────────────────────
+    st.subheader("⚙️ Cài đặt ký hàng loạt")
 
-        pages_mode = st.radio("Trang ký PDF",["Tất cả trang","Chỉ trang cuối"],
-                             horizontal=True, key="b_pgmode")
+    kw_mode = st.radio("Từ khóa tìm vị trí",
+                      ["🤖 Tự động (thử tất cả từ khóa)", "🎯 Chọn từ khóa cụ thể"],
+                      key="b_kwmode")
 
-        _cw1, _cw2 = st.columns(2)
-        with _cw1:
-            b_width = st.slider("Kích thước (%rộng)",5,60,22,key="b_w")
-        with _cw2:
-            b_voffset = st.slider("Khoảng cách (pt)",-30,80,4,key="b_vo")
+    specific_kw, specific_place = None, None
+    if kw_mode == "🎯 Chọn từ khóa cụ thể":
+        chosen_label = st.selectbox("Từ khóa", _UNIQUE_LABELS, key="b_kwsel")
+        entry = _LABEL_TO_ENTRY[chosen_label]
+        specific_kw, specific_place = entry["kw"], entry["place"]
+        place_hint = "bên dưới" if specific_place=="below" else "bên trên"
+        st.caption(f"Chữ ký sẽ đặt **{place_hint}** dòng chữ này.")
 
-        _cw3, _cw4 = st.columns(2)
-        with _cw3:
-            b_img_pos = st.selectbox("Vị trí ảnh/Excel",
-                ["Dưới phải","Dưới trái","Giữa dưới","Trên phải","Trên trái"],key="b_ipos")
-        with _cw4:
-            b_margin = st.slider("Lề ảnh (px)",5,150,35,key="b_mg")
+    pages_mode = st.radio("Trang ký PDF",["Tất cả trang","Chỉ trang cuối"],
+                         horizontal=True, key="b_pgmode")
+    b_width = st.slider("Kích thước chữ ký (% chiều rộng)",5,60,22,key="b_w")
+    b_voffset = st.slider("Khoảng cách từ từ khóa — PDF (điểm)",-30,80,4,key="b_vo")
+    b_img_pos = st.selectbox("Vị trí ký — ảnh/Excel",
+        ["Dưới phải","Dưới trái","Giữa dưới","Trên phải","Trên trái"],key="b_ipos")
+    b_margin = st.slider("Lề — ảnh (px)",5,150,35,key="b_mg")
 
-    # ── Bắt đầu ký ───────────────────────────────────────────────────
+    st.divider()
+
+    # ── Bắt đầu ký ───────────────────────────────────────────────────────
     ready = bool(files_data)
     if not ready:
-        st.caption("Upload file để bắt đầu.")
+        st.info("Chọn file hoặc quét thư mục trước.")
 
     if ready and st.button("▶️ Bắt đầu ký hàng loạt",type="primary",
                            use_container_width=True, key="b_go"):
@@ -514,7 +782,7 @@ with col_b1:
             status_box.text(f"Đang xử lý: {name}  ({i+1}/{len(files_data)})")
 
             # Tìm keyword
-            if kw_mode == "🤖 Tự động":
+            if kw_mode == "🤖 Tự động (thử tất cả từ khóa)":
                 kw, place, kw_voff = auto_find_keyword_in_doc(data)
             else:
                 kw, place, kw_voff = specific_kw, specific_place, None
@@ -583,57 +851,38 @@ with col_b2:
                          caption=sel_r["name"])
 
             else:
-                st.info(f"📄 File **{ext_p.upper()}** sẽ được chuyển sang PDF tự động trước khi ký.")
+                # Excel: hiện bảng dữ liệu + vị trí chữ ký
+                try:
+                    import pandas as pd
+                    from openpyxl import load_workbook as _lw
+                    wb_p = _lw(io.BytesIO(sel_r["bytes"]), read_only=True, data_only=True)
+                    ws_p = wb_p.active
+                    rows_p = [[c.value for c in r] for r in ws_p.iter_rows(max_row=min(ws_p.max_row or 30, 50))]
+                    wb_p.close()
+                    df_p = pd.DataFrame(rows_p).fillna("")
+                    st.dataframe(df_p, use_container_width=True, hide_index=True)
+                    # Tìm vị trí chữ ký
+                    row_s, col_s, txt_s, off_s = find_excel_sig_position(sel_r["bytes"])
+                    if row_s:
+                        st.success(f"Chữ ký đặt tại **Row {row_s+1}**, căn giữa bên dưới \"{txt_s}\" (offset {off_s//9525}px)")
+                    else:
+                        st.info("Không tìm thấy keyword — chữ ký đặt cuối trang.")
+                except Exception as ep:
+                    st.info(f"Không xem trước được: {ep}")
 
             # ── Chỉnh vị trí cho file đang xem ──────────────────────────
             _orig_b = st.session_state.batch_orig_bytes.get(sel_r["name"])
-            if _orig_b:
+            if _orig_b and ext_p in (".pdf", ".png", ".jpg", ".jpeg"):
                 with st.expander("✏️ Chỉnh vị trí chữ ký cho file này"):
                     _sig_e = st.session_state.sig_active
-
-                    _key_ok = bool(_get_anthropic_key())
-                    st.caption("🔑 AI Vision: " + ("✅ Đã cấu hình API key" if _key_ok
-                              else "❌ Chưa thấy API key (kiểm tra Secrets + Reboot app)"))
-
-                    # ── 🤖 AI tìm vị trí (chạy TRƯỚC khi tạo slider để set session_state an toàn)
-                    if ext_p == ".pdf":
-                        _epg_preview = st.session_state.get("b_epg", get_total_pages(_orig_b))
-                    if st.button("🤖 Dùng AI tìm vị trí", use_container_width=True, key="b_ai_find"):
-                        with st.spinner("Đang hỏi AI..."):
-                            try:
-                                if ext_p == ".pdf":
-                                    _ai_img = render_pdf_page_hq(_orig_b, _epg_preview - 1)
-                                else:
-                                    _ai_img = Image.open(io.BytesIO(_orig_b)).convert("RGB")
-                                _ai_width = st.session_state.get("b_ew", 22)
-                                _ai_res, _ai_err = ai_find_signature_position(
-                                    _ai_img, _sig_e, _ai_width)
-                            except Exception as _ai_ex:
-                                _ai_res, _ai_err = None, str(_ai_ex)
-                        if _ai_res:
-                            st.session_state["b_ex"] = round(_ai_res["x_pct"])
-                            st.session_state["b_ey"] = round(_ai_res["y_pct"])
-                            st.session_state["_b_ai_reason"] = _ai_res.get("reason", "")
-                        elif _ai_err:
-                            st.session_state["_b_ai_reason"] = None
-                            st.error(_ai_err)
-                    if st.session_state.get("_b_ai_reason"):
-                        st.success(f"🤖 AI đã định vị: {st.session_state['_b_ai_reason']}")
-
                     _ce1, _ce2 = st.columns(2)
                     with _ce1:
                         _ew = st.slider("Kích thước (% chiều rộng)", 5, 60, 22, key="b_ew")
                     with _ce2:
-                        # Tính tổng trang từ file gốc (PDF) hoặc sau convert
                         if ext_p == ".pdf":
                             _etotal = get_total_pages(_orig_b)
-                        else:
-                            _etotal = 1  # ảnh/Word/Excel convert sang 1+ trang, dùng 1 để preview
-                        if _etotal > 1:
                             _epg = st.selectbox("Trang", list(range(1, _etotal+1)),
                                                 index=_etotal-1, key="b_epg")
-                        else:
-                            _epg = 1
                     _ex = st.slider("↔ Ngang (% từ trái)", 0, 95, 65, key="b_ex")
                     _ey = st.slider("↕ Dọc (% từ trên)",   0, 95, 70, key="b_ey")
 
@@ -641,98 +890,82 @@ with col_b2:
                     try:
                         if ext_p == ".pdf":
                             _base_e = render_pdf_page(_orig_b, _epg - 1)
-                        elif ext_p in (".png", ".jpg", ".jpeg"):
-                            _base_e = Image.open(io.BytesIO(_orig_b)).convert("RGB")
                         else:
-                            st.caption("Preview không khả dụng cho Word/Excel — xem kết quả sau khi ký.")
-                            _base_e = None
-                        if _base_e:
-                            _bwe, _bhe = _base_e.size
-                            _swe = max(30, int(_bwe * _ew / 100))
-                            _xe  = int(_bwe * _ex / 100)
-                            _ye  = int(_bhe * _ey / 100)
-                            st.image(overlay_sig(_base_e, _sig_e, _xe, _ye, _swe),
-                                     use_container_width=True,
-                                     caption="Kéo slider → xem trước cập nhật ngay")
+                            _base_e = Image.open(io.BytesIO(_orig_b)).convert("RGB")
+                        _bwe, _bhe = _base_e.size
+                        _swe = max(30, int(_bwe * _ew / 100))
+                        _xe  = int(_bwe * _ex / 100)
+                        _ye  = int(_bhe * _ey / 100)
+                        st.image(overlay_sig(_base_e, _sig_e, _xe, _ye, _swe),
+                                 use_container_width=True,
+                                 caption="Kéo slider → xem trước cập nhật ngay")
                     except Exception as _ep:
                         st.warning(f"Không xem trước được: {_ep}")
 
                     if st.button("💾 Lưu vị trí này vào file",
                                  type="primary", use_container_width=True, key="b_esave"):
                         try:
-                            # Convert sang PDF trước nếu chưa phải PDF
-                            _pdf_b, _pdf_n, _pdf_err = convert_to_pdf(
-                                sel_r["name"], _orig_b)
-                            if _pdf_err:
-                                st.error(f"Lỗi convert: {_pdf_err}")
+                            if ext_p == ".pdf":
+                                import fitz as _fz
+                                _sbuf = io.BytesIO(); _sig_e.save(_sbuf, "PNG")
+                                _spng = _sbuf.getvalue()
+                                _ar_e = _sig_e.width / _sig_e.height
+                                _doc_e = _fz.open(stream=_orig_b, filetype="pdf")
+                                for _pg_e in _doc_e:
+                                    _pw_e, _ph_e = _pg_e.rect.width, _pg_e.rect.height
+                                    _sw_e = _pw_e * _ew / 100
+                                    _sh_e = _sw_e / _ar_e
+                                    _x_e  = _pw_e * _ex / 100
+                                    _y_e  = _ph_e * _ey / 100
+                                    _pg_e.insert_image(
+                                        _fz.Rect(_x_e, _y_e, _x_e+_sw_e, _y_e+_sh_e),
+                                        stream=_spng)
+                                _out_e = io.BytesIO(); _doc_e.save(_out_e)
+                                _new_b = _out_e.getvalue()
                             else:
-                                _doc_e = __import__("fitz").open(stream=_pdf_b, filetype="pdf")
-                                _all_pages_e = list(range(1, _doc_e.page_count + 1))
-                                _new_b = sign_pdf_at_xy_pct(_pdf_b, _sig_e, _all_pages_e,
-                                                            _ex, _ey, _ew)
-                                for _r_e in st.session_state.batch_results:
-                                    if _r_e["name"] == sel_r["name"]:
-                                        _r_e["bytes"] = _new_b
-                                        _r_e["out_name"] = _pdf_n
-                                        _r_e["detail"] += " [đã chỉnh vị trí]"
-                                        break
-                                st.success("Đã cập nhật! Tải file ZIP bên dưới để lấy bản mới.")
-                                st.rerun()
+                                _img_e = Image.open(io.BytesIO(_orig_b)).convert("RGB")
+                                _bw2, _bh2 = _img_e.size
+                                _sw2 = max(30, int(_bw2 * _ew / 100))
+                                _res_e = overlay_sig(_img_e, _sig_e,
+                                                     int(_bw2 * _ex / 100),
+                                                     int(_bh2 * _ey / 100), _sw2)
+                                _buf_e = io.BytesIO(); _res_e.save(_buf_e, "PNG")
+                                _new_b = _buf_e.getvalue()
+
+                            for _r_e in st.session_state.batch_results:
+                                if _r_e["name"] == sel_r["name"]:
+                                    _r_e["bytes"] = _new_b
+                                    _r_e["detail"] += " [đã chỉnh vị trí]"
+                                    break
+                            st.success("Đã cập nhật! Tải file ZIP bên dưới để lấy bản mới.")
+                            st.rerun()
                         except Exception as _ee:
                             st.error(f"Lỗi: {_ee}")
 
             # ── Tải về ───────────────────────────────────────────────────
             st.divider()
-            # CSS làm nút/link tải nổi bật
-            st.markdown("""<style>
-                [data-testid="stDownloadButton"] button {
-                    background-color: #22c55e !important;
-                    color: white !important;
-                    font-weight: bold !important;
-                    font-size: 1.1em !important;
-                    border: none !important;
-                    padding: 0.6em 1em !important;
-                }
-                .dl-link {
-                    display: block; text-align: center; padding: 14px;
-                    background: #22c55e; color: white !important;
-                    border-radius: 8px; font-weight: bold; font-size: 1.1em;
-                    text-decoration: none; margin: 6px 0;
-                }
-                .dl-link:active { background: #15803d; }
-                .dl-link-small {
-                    display: inline-block; padding: 8px 16px;
-                    background: #3b82f6; color: white !important;
-                    border-radius: 6px; text-decoration: none;
-                    font-size: 0.9em; margin: 4px 0;
-                }
-            </style>""", unsafe_allow_html=True)
-
-            import base64
             zip_bytes = create_zip(ok)
-            _b64_zip = base64.b64encode(zip_bytes).decode()
-
-            # Link tải chính (hoạt động trên cả iOS PWA và PC)
-            st.markdown(
-                f'<a class="dl-link" href="data:application/zip;base64,{_b64_zip}" '
-                f'download="da_ky_hang_loat.zip">⬇️ Tải tất cả {len(ok)} file đã ký (ZIP)</a>',
-                unsafe_allow_html=True)
-
-            st.info(
-                "📱 **iPhone**: Bấm link trên → chọn **Tải về** hoặc **Mở bằng Files**.\n\n"
-                "💻 **Máy tính**: File tự tải vào thư mục **Downloads**."
+            st.download_button(
+                f"⬇️ Tải tất cả {len(ok)} file đã ký (ZIP)",
+                data=zip_bytes,
+                file_name="da_ky_hang_loat.zip",
+                mime="application/zip",
+                use_container_width=True,
             )
+            st.caption("File ZIP tải về nằm trong thư mục **Downloads** của trình duyệt. "
+                       "Giải nén để lấy từng file.")
 
             with st.expander("Tải từng file riêng"):
                 for r in ok:
                     ext = _ext(r["name"])
-                    _mime = ("application/pdf" if ext == ".pdf" else
+                    mime = ("application/pdf" if ext == ".pdf" else
                             "image/png" if ext in (".png",".jpg",".jpeg") else
                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if ext == ".docx" else
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    _fname = r.get("out_name", r["name"])
-                    _b64 = base64.b64encode(r["bytes"]).decode()
-                    st.markdown(
-                        f'<a class="dl-link-small" href="data:{_mime};base64,{_b64}" '
-                        f'download="{_fname}">⬇️ {_fname}</a>',
-                        unsafe_allow_html=True)
+                    st.download_button(
+                        f"⬇️ {r.get('out_name', r['name'])}",
+                        data=r["bytes"],
+                        file_name=r.get("out_name", f"da_ky_{r['name']}"),
+                        mime=mime,
+                        key=f"dl_{r['name']}",
+                    )

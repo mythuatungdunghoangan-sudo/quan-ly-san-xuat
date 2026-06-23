@@ -8,3 +8,5 @@ pandas
 streamlit-drawable-canvas
 pytesseract
 requests
+docx2pdf; sys_platform == "win32"
+pywin32; sys_platform == "win32"
